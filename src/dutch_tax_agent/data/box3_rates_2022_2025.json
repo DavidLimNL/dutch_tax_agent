@@ -1,0 +1,130 @@
+{
+  "2022": {
+    "tax_free_allowance": 50650,
+    "tax_rate": 0.31,
+    "brackets": [
+      {
+        "min_wealth": 0,
+        "max_wealth": 50000,
+        "savings_percentage": 0.67,
+        "investments_percentage": 0.33,
+        "fictional_yield_savings": 0.0001,
+        "fictional_yield_investments": 0.0592
+      },
+      {
+        "min_wealth": 50000,
+        "max_wealth": 950000,
+        "savings_percentage": 0.21,
+        "investments_percentage": 0.79,
+        "fictional_yield_savings": 0.0001,
+        "fictional_yield_investments": 0.0592
+      },
+      {
+        "min_wealth": 950000,
+        "max_wealth": null,
+        "savings_percentage": 0.0,
+        "investments_percentage": 1.0,
+        "fictional_yield_savings": 0.0001,
+        "fictional_yield_investments": 0.0592
+      }
+    ]
+  },
+  "2023": {
+    "tax_free_allowance": 57000,
+    "tax_rate": 0.32,
+    "brackets": [
+      {
+        "min_wealth": 0,
+        "max_wealth": 57000,
+        "savings_percentage": 0.67,
+        "investments_percentage": 0.33,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0604
+      },
+      {
+        "min_wealth": 57000,
+        "max_wealth": 1000000,
+        "savings_percentage": 0.21,
+        "investments_percentage": 0.79,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0604
+      },
+      {
+        "min_wealth": 1000000,
+        "max_wealth": null,
+        "savings_percentage": 0.0,
+        "investments_percentage": 1.0,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0604
+      }
+    ]
+  },
+  "2024": {
+    "tax_free_allowance": 57000,
+    "tax_rate": 0.36,
+    "brackets": [
+      {
+        "min_wealth": 0,
+        "max_wealth": 57000,
+        "savings_percentage": 0.67,
+        "investments_percentage": 0.33,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      },
+      {
+        "min_wealth": 57000,
+        "max_wealth": 1000000,
+        "savings_percentage": 0.21,
+        "investments_percentage": 0.79,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      },
+      {
+        "min_wealth": 1000000,
+        "max_wealth": null,
+        "savings_percentage": 0.0,
+        "investments_percentage": 1.0,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      }
+    ]
+  },
+  "2025": {
+    "tax_free_allowance": 57000,
+    "tax_rate": 0.36,
+    "brackets": [
+      {
+        "min_wealth": 0,
+        "max_wealth": 57000,
+        "savings_percentage": 0.67,
+        "investments_percentage": 0.33,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      },
+      {
+        "min_wealth": 57000,
+        "max_wealth": 1000000,
+        "savings_percentage": 0.21,
+        "investments_percentage": 0.79,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      },
+      {
+        "min_wealth": 1000000,
+        "max_wealth": null,
+        "savings_percentage": 0.0,
+        "investments_percentage": 1.0,
+        "fictional_yield_savings": 0.0092,
+        "fictional_yield_investments": 0.0617
+      }
+    ]
+  },
+  "_notes": {
+    "description": "Box 3 fictional yield rates for Dutch wealth tax (2022-2025)",
+    "source": "Belastingdienst official rates",
+    "disclaimer": "These rates are for demonstration purposes. Verify with official sources.",
+    "methodology": "The fictional yield method assumes a percentage of wealth is 'savings' and the rest is 'investments', each with different yield rates."
+  }
+}
+
+

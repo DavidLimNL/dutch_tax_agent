@@ -1,0 +1,201 @@
+# Dutch Tax Agent 🇳🇱
+
+> **Zero-Trust AI Tax Assistant for Dutch Personal Income Tax (Box 1 & Box 3)**
+
+A production-grade LangGraph application that automates Dutch tax filing while adhering to strict PII governance and legal compliance requirements.
+
+## 🎯 Key Features
+
+- **Zero-Trust Data Policy**: PII is scrubbed before any LLM processing
+- **Parallel Document Processing**: Uses LangGraph's `Send` API for concurrent parsing
+- **Legal Compliance**: Handles Box 3 ambiguity by calculating both methods
+- **Deterministic Math**: All calculations done with Python tools, not LLM tokens
+- **Audit Trail**: Every extracted value links back to source documents
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    subgraph "Phase 1: The Safe Zone (Local Execution)"
+        User[User Upload] -->|PDFs| Ingest[Ingestion Controller]
+        Ingest -->|Binary Stream| Parser[PDFPlumber]
+        Parser -->|Raw Text| PII[Presidio Scrubber]
+        PII -->|Scrubbed Text| SafeData[Clean Document List]
+    end
+
+    subgraph "Phase 2: The Graph (LangGraph Map-Reduce)"
+        SafeData --> Dispatcher{Dispatcher Node}
+        
+        Dispatcher -->|Send Doc A| DutchAgent[Dutch Parser Agent]
+        Dispatcher -->|Send Doc B| USAgent[US Broker Agent]
+        Dispatcher -->|Send Doc C| SalaryAgent[Income Agent]
+        
+        DutchAgent --> ValidatorA[Validator & Currency Tool]
+        USAgent --> ValidatorB[Validator & Currency Tool]
+        SalaryAgent --> ValidatorC[Validator & Currency Tool]
+        
+        ValidatorA --> Aggregate[Aggregator Node]
+        ValidatorB --> Aggregate
+        ValidatorC --> Aggregate
+        
+        Aggregate --> Reducer[Reducer Node]
+    end
+
+    subgraph "Phase 3: Logic & Review"
+        Reducer -->|Command: routes based on validation| Check{Reducer Routing}
+        
+        Check -->|Quarantine or No Assets| End1[END - Skip Box 3]
+        
+        Check -->|Valid & Has Assets| StartBox3[Start Box 3]
+        
+        StartBox3 --> OldCalc[Method A: Fictional Yield]
+        StartBox3 --> NewCalc[Method B: Actual Return]
+        
+        OldCalc --> Compare[Comparison Node]
+        NewCalc --> Compare
+        Compare --> End2[END - Final State]
+    end
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- `uv` package manager
+
+### Installation
+
+```bash
+# Install dependencies
+uv sync
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### Run the Agent
+
+```bash
+# Process tax documents
+uv run python -m dutch_tax_agent.main --input-dir ./sample_docs
+
+# Interactive mode
+uv run python -m dutch_tax_agent.cli
+```
+
+## 📁 Project Structure
+
+```
+dutch_tax_agent/
+├── src/
+│   └── dutch_tax_agent/
+│       ├── __init__.py
+│       ├── main.py                    # Entry point
+│       ├── config.py                  # Configuration
+│       ├── schemas/                   # Pydantic models
+│       │   ├── state.py               # Graph state definitions
+│       │   ├── documents.py           # Document schemas
+│       │   └── tax_entities.py        # Tax-specific models
+│       ├── ingestion/                 # Phase 1: Safe Zone
+│       │   ├── pdf_parser.py          # PDFPlumber logic
+│       │   ├── pii_scrubber.py        # Presidio + custom recognizers
+│       │   └── recognizers/           # Custom PII recognizers
+│       │       ├── bsn_recognizer.py  # 11-proef implementation
+│       │       ├── iban_recognizer.py
+│       │       └── dob_recognizer.py
+│       ├── graph/                     # LangGraph orchestration
+│       │   ├── main_graph.py          # Graph construction only
+│       │   ├── nodes/                 # Graph nodes (self-contained)
+│       │   │   ├── dispatcher.py      # Document router
+│       │   │   ├── aggregator.py      # Aggregation & Box 3 trigger
+│       │   │   ├── reducer.py         # Totals & validation
+│       │   │   ├── validators.py      # Data validation
+│       │   │   └── box3/             # Box 3 calculation nodes
+│       │   │       ├── fictional_yield.py  # Node + calculation logic
+│       │   │       ├── actual_return.py    # Node + calculation logic
+│       │   │       └── comparison.py       # Node + comparison logic
+│       │   └── agents/                # LLM-based parser agents
+│       │       ├── dutch_parser.py
+│       │       ├── us_broker_parser.py
+│       │       └── salary_parser.py
+│       ├── tools/                     # Deterministic tools
+│       │   ├── currency.py            # ECB rate fetching
+│       │   └── validators.py          # Type checking
+│       └── data/
+│           └── box3_rates_2022_2025.json  # Fictional yield tables
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+│       └── synthetic_pdfs/            # Test documents
+├── .env.example
+├── .gitignore
+├── pyproject.toml
+└── README.md
+```
+
+## 🔒 Security & Privacy
+
+- **No PII in LLM**: BSN (including "citizen service number"), names, IBANs, addresses, phone numbers, and emails are scrubbed using Presidio before any LLM call
+- **Zero-Trust Enforcement**: Documents that fail PII scrubbing are excluded from processing (not passed through with unredacted PII)
+- **Custom 11-proef**: Validates Dutch BSN using official checksum algorithm
+- **Audit Trail**: Every extraction is linked to `source_doc_id` and page number
+- **Deterministic Math**: Currency conversion and tax calculations use Python tools only
+
+## 📊 Box 3 Wealth Tax Logic
+
+The system handles the legal complexity of Dutch Box 3 by running **two parallel calculations**:
+
+1. **Method A (Fictional Yield)**: Uses statutory rates from the Belastingdienst
+2. **Method B (Actual Return)**: Uses realized gains from bank statements
+
+The comparison agent then presents both options to the user with recommendations.
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=dutch_tax_agent
+
+# Test with synthetic data
+uv run pytest tests/integration/test_end_to_end.py
+```
+
+## 📝 Configuration
+
+Key environment variables:
+
+- `OPENAI_API_KEY`: For LLM calls
+- `LANGSMITH_API_KEY`: For tracing (optional)
+- `LANGSMITH_ENDPOINT`: LangSmith endpoint URL (e.g., `https://eu.smith.langchain.com` for EU region)
+- `ECB_API_KEY`: For currency rates (optional, falls back to cached rates)
+
+## 🛠️ Development
+
+```bash
+# Install dev dependencies
+uv add --dev pytest pytest-cov ruff mypy
+
+# Lint
+uv run ruff check .
+
+# Type check
+uv run mypy src/
+
+# Format
+uv run ruff format .
+```
+
+## 📄 License
+
+MIT License - This is a demonstration project for educational purposes.
+
+## ⚠️ Disclaimer
+
+This is a **demonstration project** and should not be used for actual tax filing without proper legal review and compliance validation.
+
