@@ -83,7 +83,9 @@ class DutchTaxAgent:
                     continue
 
             console.print(f"[green]✓[/green] Parsed {len(parsed_docs)} documents")
-            logger.info(f"Parsed DOCS: {parsed_docs}")
+
+            #  TO BE REMOVED LATER
+            # logger.info(f"Parsed DOCS: {parsed_docs}")
 
             # Scrub PII (ZERO-TRUST: Documents that fail scrubbing are excluded)
             progress.update(task, description="Scrubbing PII...")
@@ -103,9 +105,10 @@ class DutchTaxAgent:
                 )
                 raise
 
-        logger.info(f"Scrubbed DOCS: {scrubbed_docs}")
-        return
-        
+        #  TO BE REMOVED LATER
+        # logger.info(f"Scrubbed DOCS: {scrubbed_docs}")
+        # return
+
         # Phase 2 & 3: LangGraph Processing
         console.print("\n[bold]Phase 2: LangGraph Map-Reduce Extraction[/bold]")
 
@@ -178,6 +181,7 @@ class DutchTaxAgent:
         # Box 3 Calculations
         fictional = state.get("box3_fictional_yield_result") if isinstance(state, dict) else state.box3_fictional_yield_result
         actual = state.get("box3_actual_return_result") if isinstance(state, dict) else state.box3_actual_return_result
+        recommendation_reasoning = state.get("recommendation_reasoning") if isinstance(state, dict) else getattr(state, "recommendation_reasoning", None)
         
         if fictional and actual:
             console.print("\n[bold yellow]Box 3 Tax Comparison[/bold yellow]")
@@ -207,7 +211,6 @@ class DutchTaxAgent:
         # Warnings & Errors
         validation_warnings = state.get("validation_warnings", []) if isinstance(state, dict) else state.validation_warnings
         validation_errors = state.get("validation_errors", []) if isinstance(state, dict) else state.validation_errors
-        recommendation_reasoning = state.get("recommendation_reasoning") if isinstance(state, dict) else state.recommendation_reasoning
         
         if validation_warnings:
             console.print(f"\n[bold yellow]⚠️  Warnings ({len(validation_warnings)}):[/bold yellow]")
