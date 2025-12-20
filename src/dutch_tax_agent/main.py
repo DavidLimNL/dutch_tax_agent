@@ -83,6 +83,7 @@ class DutchTaxAgent:
                     continue
 
             console.print(f"[green]✓[/green] Parsed {len(parsed_docs)} documents")
+            logger.info(f"Parsed DOCS: {parsed_docs}")
 
             # Scrub PII (ZERO-TRUST: Documents that fail scrubbing are excluded)
             progress.update(task, description="Scrubbing PII...")
@@ -102,6 +103,9 @@ class DutchTaxAgent:
                 )
                 raise
 
+        logger.info(f"Scrubbed DOCS: {scrubbed_docs}")
+        return
+        
         # Phase 2 & 3: LangGraph Processing
         console.print("\n[bold]Phase 2: LangGraph Map-Reduce Extraction[/bold]")
 

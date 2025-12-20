@@ -10,6 +10,7 @@ from presidio_anonymizer.entities import OperatorConfig
 
 from dutch_tax_agent.ingestion.recognizers import (
     BsnRecognizer,
+    DutchAddressRecognizer,
     DutchDOBRecognizer,
     DutchIBANRecognizer,
 )
@@ -31,6 +32,7 @@ class PIIScrubber:
         self.analyzer.registry.add_recognizer(BsnRecognizer())
         self.analyzer.registry.add_recognizer(DutchIBANRecognizer())
         self.analyzer.registry.add_recognizer(DutchDOBRecognizer())
+        self.analyzer.registry.add_recognizer(DutchAddressRecognizer())
 
         logger.info("Initialized PII scrubber with custom Dutch recognizers")
 
@@ -65,6 +67,7 @@ class PIIScrubber:
                 "NL_BSN",  # Custom Dutch BSN recognizer (includes "citizen service number")
                 "NL_IBAN",  # Custom Dutch IBAN recognizer
                 "NL_DATE_OF_BIRTH",  # Custom Dutch DOB recognizer
+                "NL_ADDRESS",  # Custom Dutch address recognizer (postal codes, streets, cities)
                 "PERSON",  # Built-in person name detector (English)
                 "EMAIL_ADDRESS",  # Built-in email detector (English)
                 "PHONE_NUMBER",  # Built-in phone detector (English)
@@ -89,6 +92,9 @@ class PIIScrubber:
                 "NL_IBAN": OperatorConfig("replace", {"new_value": "<IBAN_REDACTED>"}),
                 "NL_DATE_OF_BIRTH": OperatorConfig(
                     "replace", {"new_value": "<DOB_REDACTED>"}
+                ),
+                "NL_ADDRESS": OperatorConfig(
+                    "replace", {"new_value": "<ADDRESS_REDACTED>"}
                 ),
                 "PERSON": OperatorConfig("replace", {"new_value": "<NAME_REDACTED>"}),
                 "EMAIL_ADDRESS": OperatorConfig(
