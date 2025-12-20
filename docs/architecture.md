@@ -62,7 +62,9 @@ graph TD
    - **NL_BSN**: Dutch BSN (Burgerservicenummer), including "citizen service number"
    - **NL_IBAN**: Dutch IBAN numbers
    - **NL_DATE_OF_BIRTH**: Dutch date formats
-   - **PERSON**: Person names (English recognizer)
+   - **NL_ADDRESS**: Dutch addresses (postal codes, streets, cities)
+   - **PERSON_NAME**: Custom name recognizer from `pii_names.json` (handles full names, concatenated, reversed/inverted, and case variations)
+   - **PERSON**: Person names (English recognizer, fallback)
    - **EMAIL_ADDRESS**: Email addresses
    - **PHONE_NUMBER**: Phone numbers
    - **LOCATION**: Addresses and locations

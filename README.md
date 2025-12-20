@@ -124,7 +124,8 @@ dutch_tax_agent/
 │       │   ├── currency.py            # ECB rate fetching
 │       │   └── validators.py          # Type checking
 │       └── data/
-│           └── box3_rates_2022_2025.json  # Fictional yield tables
+│           ├── box3_rates_2022_2025.json  # Fictional yield tables
+│           └── pii_names.json.example     # Template for PII names (see Security section)
 ├── tests/
 │   ├── unit/
 │   ├── integration/
@@ -141,8 +142,46 @@ dutch_tax_agent/
 - **No PII in LLM**: BSN (including "citizen service number"), names, IBANs, addresses, phone numbers, and emails are scrubbed using Presidio before any LLM call
 - **Zero-Trust Enforcement**: Documents that fail PII scrubbing are excluded from processing (not passed through with unredacted PII)
 - **Custom 11-proef**: Validates Dutch BSN using official checksum algorithm
+- **Custom Name Recognition**: Configurable name scrubbing from `pii_names.json` that handles:
+  - Full names (with/without spaces, concatenated)
+  - First + Last name combinations
+  - Individual name parts
+  - **Reversed/inverted names** (e.g., "JOHNDOE" → "EODNHOJ")
+  - Case-insensitive matching
 - **Audit Trail**: Every extraction is linked to `source_doc_id` and page number
 - **Deterministic Math**: Currency conversion and tax calculations use Python tools only
+
+### Setting Up PII Name Recognition
+
+The system uses a configuration file to recognize and scrub personal names. **This file is gitignored for security reasons.**
+
+1. Copy the example template:
+   ```bash
+   cp src/dutch_tax_agent/data/pii_names.json.example src/dutch_tax_agent/data/pii_names.json
+   ```
+
+2. Edit `pii_names.json` with your actual name(s):
+   ```json
+   {
+     "names": [
+       {
+         "first": "JOHN",
+         "last": "DOE",
+         "middle": null,
+         "full_name": "JOHN DOE"
+       }
+     ]
+   }
+   ```
+
+3. The recognizer will automatically detect all variations including:
+   - "JOHN DOE" (with space)
+   - "JOHNDOE" (concatenated)
+   - "EODNHOJ" (reversed)
+   - "JOHN" or "DOE" (individual parts)
+   - All case variations
+
+**⚠️ Important**: Never commit `pii_names.json` to git. It contains sensitive PII.
 
 ## 📊 Box 3 Wealth Tax Logic
 
@@ -168,12 +207,18 @@ uv run pytest tests/integration/test_end_to_end.py
 
 ## 📝 Configuration
 
+### Environment Variables
+
 Key environment variables:
 
 - `OPENAI_API_KEY`: For LLM calls
 - `LANGSMITH_API_KEY`: For tracing (optional)
 - `LANGSMITH_ENDPOINT`: LangSmith endpoint URL (e.g., `https://eu.smith.langchain.com` for EU region)
 - `ECB_API_KEY`: For currency rates (optional, falls back to cached rates)
+
+### PII Name Configuration
+
+See the [Security & Privacy](#-security--privacy) section above for setting up `pii_names.json`.
 
 ## 🛠️ Development
 

@@ -72,6 +72,9 @@ langsmith_cache/
 .env.local
 secrets/
 
+# PII Configuration (sensitive)
+src/dutch_tax_agent/data/pii_names.json
+
 # Document uploads (sensitive)
 uploads/
 sample_docs/*.pdf
@@ -100,3 +103,4 @@ Thumbs.db
 .AppleDouble
 .LSOverride
 
+.cursorrules
