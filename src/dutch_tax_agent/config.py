@@ -16,7 +16,18 @@ load_dotenv()
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # OpenAI Configuration
+    # LLM Configuration
+    llm_provider: Literal["openai", "ollama"] = Field(
+        default="openai", alias="LLM_PROVIDER"
+    )
+    llm_model: str = Field(
+        default="", alias="LLM_MODEL"
+    )  # Empty means use provider-specific default
+    ollama_base_url: str = Field(
+        default="http://localhost:11434", alias="OLLAMA_BASE_URL"
+    )
+
+    # OpenAI Configuration (for backward compatibility)
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 

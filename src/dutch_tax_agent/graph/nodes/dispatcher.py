@@ -3,10 +3,9 @@
 import logging
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from langgraph.types import Command, Send
 
-from dutch_tax_agent.config import settings
+from dutch_tax_agent.llm_factory import create_llm
 from dutch_tax_agent.schemas.documents import DocumentClassification
 from dutch_tax_agent.schemas.state import TaxGraphState
 
@@ -23,7 +22,7 @@ def classify_document(doc_text: str, doc_id: str) -> DocumentClassification:
     Returns:
         DocumentClassification with type and confidence
     """
-    llm = ChatOpenAI(model=settings.openai_model, temperature=0)
+    llm = create_llm(temperature=0)
 
     prompt = f"""Classify this financial document into ONE of these categories:
 - dutch_bank_statement: Dutch bank statement (ING, ABN AMRO, Rabobank, etc.)

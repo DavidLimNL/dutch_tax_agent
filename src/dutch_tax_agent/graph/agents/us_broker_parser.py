@@ -5,10 +5,9 @@ import logging
 from datetime import date
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from langsmith import traceable
 
-from dutch_tax_agent.config import settings
+from dutch_tax_agent.llm_factory import create_llm
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ def us_broker_parser_agent(input_data: dict) -> dict:
 
     logger.info(f"US broker parser processing {filename}")
 
-    llm = ChatOpenAI(model=settings.openai_model, temperature=0)
+    llm = create_llm(temperature=0)
 
     prompt = f"""You are a specialized brokerage statement parser for Dutch tax purposes.
 

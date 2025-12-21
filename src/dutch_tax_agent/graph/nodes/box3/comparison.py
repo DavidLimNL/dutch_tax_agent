@@ -6,10 +6,9 @@ This module contains both the LangGraph node and the comparison logic.
 import logging
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from langsmith import traceable
 
-from dutch_tax_agent.config import settings
+from dutch_tax_agent.llm_factory import create_llm
 from dutch_tax_agent.schemas.state import TaxGraphState
 from dutch_tax_agent.schemas.tax_entities import Box3Calculation
 
@@ -52,7 +51,7 @@ def compare_box3_methods(
         savings = -difference
 
     # Generate natural language explanation using LLM
-    llm = ChatOpenAI(model=settings.openai_model, temperature=0.3)
+    llm = create_llm(temperature=0.3)
 
     prompt = f"""You are a Dutch tax advisor. Compare these two Box 3 calculation methods and explain the recommendation to the taxpayer.
 
@@ -74,7 +73,7 @@ Provide a clear, professional explanation in 2-3 sentences covering:
 2. What documentation would be needed for the actual return method
 3. The potential savings/cost
 
-Use Dutch tax terminology where appropriate (Box 3, vermogensrendementsheffing, etc.).
+Use Dutch tax terminology where appropriate (Box 3, vermogensrendementsheffing, etc.). Reply in English.
 """
 
     try:
