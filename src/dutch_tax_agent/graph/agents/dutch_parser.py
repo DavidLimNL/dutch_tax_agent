@@ -53,7 +53,8 @@ IMPORTANT INSTRUCTIONS:
 2. Look for account balances on or near January 1st (the reference date for Box 3)
 3. Look for account balances on or near December 31st (end of tax year, needed for actual return calculation)
 4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
-5. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
+5. ⚠️ CRITICAL: If this is a January statement that shows BOTH 31-Dec of the previous year AND 31-Jan of the tax year, you MUST use the 31-Dec (previous year) value for value_eur_jan1, NOT the 31-Jan value. The 31-Dec value is closest to 1-Jan and is what we need for Box 3 calculations.
+6. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
 6. Identify the account type: savings, investment (stocks/bonds), crypto, or other
 7. Extract each account type separately (e.g., if there's both a savings and investment account, create two items)
 8. Look for realized gains, dividends, or interest income during the year
@@ -89,6 +90,7 @@ Return JSON in this EXACT format:
 IMPORTANT:
 - If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
 - If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
+- ⚠️ CRITICAL FOR JANUARY STATEMENTS: If a January statement shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024), you MUST use the 31-Dec (previous year) value for value_eur_jan1, NOT the 31-Jan value. The 31-Dec value is closest to 1-Jan and is what we need for Box 3 calculations.
 - If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
 - If document only has one of these dates, that's fine - set the other to null
 - If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range
