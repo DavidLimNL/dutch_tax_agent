@@ -19,12 +19,11 @@ from dutch_tax_agent.graph.nodes import (
     reducer_node,
     validator_node,
 )
-from dutch_tax_agent.graph.nodes.box3 import (
-    start_box3_node,
-    fictional_yield_node,
-    actual_return_node,
-    comparison_node,
-)
+from dutch_tax_agent.graph.nodes.box3.actual_return import actual_return_node
+from dutch_tax_agent.graph.nodes.box3.comparison import comparison_node
+from dutch_tax_agent.graph.nodes.box3.optimization import optimization_node
+from dutch_tax_agent.graph.nodes.box3.start_box3 import start_box3_node
+from dutch_tax_agent.graph.nodes.box3.statutory_calculation import statutory_calculation_node
 from dutch_tax_agent.schemas.state import TaxGraphState
 
 logger = logging.getLogger(__name__)
@@ -40,8 +39,9 @@ def create_tax_graph() -> StateGraph:
     4. validators -> aggregator (collects results)
     5. aggregator -> reducer (calculates totals, uses Command for routing)
     6. reducer -> start_box3 OR END (via Command based on validation/assets)
-    7. start_box3 -> fictional_yield + actual_return (parallel)
-    8. fictional_yield + actual_return -> comparison -> complete
+    7. start_box3 -> statutory_calculation -> optimization
+                 -> actual_return (parallel branch)
+    8. optimization + actual_return -> comparison -> complete
     
     Returns:
         Compiled StateGraph
@@ -66,9 +66,10 @@ def create_tax_graph() -> StateGraph:
     graph.add_node("aggregate", aggregate_extraction_node)
     graph.add_node("reducer", reducer_node)
     
-    # Box 3 calculation nodes (run in parallel, then compare)
+    # Box 3 calculation nodes
     graph.add_node("start_box3", start_box3_node)
-    graph.add_node("fictional_yield", fictional_yield_node)
+    graph.add_node("statutory_calculation", statutory_calculation_node)
+    graph.add_node("optimization", optimization_node)
     graph.add_node("actual_return", actual_return_node)
     graph.add_node("comparison", comparison_node)
 
@@ -92,13 +93,15 @@ def create_tax_graph() -> StateGraph:
     # Reducer now uses Command for routing - no conditional edge needed
     # The Command determines whether to go to "start_box3" or END based on validation/assets
     
-    # Parallel Box 3 calculations triggered from start_box3
-    # Both fictional_yield and actual_return run in parallel
-    graph.add_edge("start_box3", "fictional_yield")
+    # Branch 1: Statutory Calculation -> Optimization
+    graph.add_edge("start_box3", "statutory_calculation")
+    graph.add_edge("statutory_calculation", "optimization")
+    
+    # Branch 2: Actual Return (Parallel)
     graph.add_edge("start_box3", "actual_return")
     
-    # Both calculations feed into comparison
-    graph.add_edge("fictional_yield", "comparison")
+    # Join: Both branches feed into comparison
+    graph.add_edge("optimization", "comparison")
     graph.add_edge("actual_return", "comparison")
     
     # Comparison completes the flow

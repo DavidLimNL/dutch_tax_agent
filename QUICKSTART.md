@@ -62,6 +62,9 @@ uv run python -m dutch_tax_agent.cli process
 # Specify custom directory and year
 uv run python -m dutch_tax_agent.cli process --input-dir ~/Documents/taxes_2024 --year 2024
 
+# Disable fiscal partner optimization (single taxpayer)
+uv run python -m dutch_tax_agent.cli process --input-dir ~/Documents/taxes_2024 --no-fiscal-partner
+
 # Show version
 uv run python -m dutch_tax_agent.cli version
 ```
@@ -78,8 +81,11 @@ uv run python -m dutch_tax_agent.main
 from pathlib import Path
 from dutch_tax_agent.main import DutchTaxAgent
 
-# Create agent
+# Create agent (fiscal partner assumed by default)
 agent = DutchTaxAgent(tax_year=2024)
+
+# Or disable fiscal partner
+# agent = DutchTaxAgent(tax_year=2024, has_fiscal_partner=False)
 
 # Process documents
 pdf_files = [
@@ -108,9 +114,10 @@ The agent will display:
 - Results are aggregated
 
 ### Phase 3: Box 3 Calculations
-- **Fictional Yield Method**: Based on statutory rates
-- **Actual Return Method**: Based on realized gains
-- **Comparison**: Shows potential tax savings
+- **Statutory Calculation**: Savings Variant (2023-2025) or Legacy (2022)
+- **Fiscal Partner Optimization**: Allocates assets to maximize tax credits
+- **Actual Return Method**: Hoge Raad method (includes unrealized gains)
+- **Comparison**: Shows potential tax savings between methods
 
 ### Example Output
 
@@ -127,11 +134,12 @@ Items: 3
 
 Box 3 Tax Comparison
 
-Method A: Fictional Yield (Old Law)
+Method A: Statutory Calculation (Savings Variant)
   Deemed Income: €3,245.00
   Tax Owed: €1,168.20
+  (Optimized for fiscal partner: €1,050.00)
 
-Method B: Actual Return (New Law)
+Method B: Actual Return (Hoge Raad Method)
   Actual Gains: €2,650.00
   Tax Owed: €954.00
 
@@ -141,6 +149,7 @@ Recommendation:
 The actual return method results in €214.20 less tax. 
 Consider using this method if you have proper documentation 
 of realized gains from your bank and broker statements.
+Note: Fiscal partner optimization saved an additional €118.20.
 ```
 
 ## Testing the Installation

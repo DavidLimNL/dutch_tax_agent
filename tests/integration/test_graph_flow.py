@@ -102,14 +102,23 @@ def test_validator_node_handles_box3_data():
 
 
 def test_validator_node_handles_multiple_extraction_results():
-    """Test that validator processes only the latest extraction result."""
+    """Test that validator processes all unvalidated extraction results."""
     state = TaxGraphState(
         extraction_results=[
             ExtractionResult(
                 doc_id="test_doc_1",
                 source_filename="old.pdf",
                 status="success",
-                extracted_data={"box1_items": []},
+                extracted_data={
+                    "box3_items": [
+                        {
+                            "asset_type": "savings",
+                            "value_eur_jan1": 50000.0,
+                            "original_currency": "EUR",
+                            "extraction_confidence": 0.8,
+                        }
+                    ]
+                },
                 extraction_confidence=0.8,
                 extracted_at=datetime.now(),
                 extracted_by_model="gpt-4o-mini",
@@ -145,9 +154,24 @@ def test_validator_node_handles_multiple_extraction_results():
     # Call validator_node with state containing multiple extraction results
     result = validator_node(state)
     
-    # Verify it processes only the latest one (test_doc_2)
-    validated_result = result["validated_results"][0]
-    assert validated_result["doc_id"] == "test_doc_2"
+    # Verify it processes ALL unvalidated results (both test_doc_1 and test_doc_2)
+    assert len(result["validated_results"]) == 2
+    
+    # Find results by doc_id
+    validated_by_doc_id = {
+        r["doc_id"]: r for r in result["validated_results"]
+    }
+    
+    assert "test_doc_1" in validated_by_doc_id
+    assert "test_doc_2" in validated_by_doc_id
+    
+    # Verify test_doc_1 has Box 3 items
+    assert len(validated_by_doc_id["test_doc_1"]["validated_box3_items"]) == 1
+    assert len(validated_by_doc_id["test_doc_1"]["validated_box1_items"]) == 0
+    
+    # Verify test_doc_2 has Box 1 items
+    assert len(validated_by_doc_id["test_doc_2"]["validated_box1_items"]) == 1
+    assert len(validated_by_doc_id["test_doc_2"]["validated_box3_items"]) == 0
 
 
 def test_state_schema_accumulation():

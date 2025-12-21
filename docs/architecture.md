@@ -37,18 +37,19 @@ graph TD
         Aggregate --> Reducer[Reducer Node]
     end
 
-    subgraph "Phase 3: Logic & Review"
+    subgraph "Phase 3: Box 3 Calculation & Optimization"
         Reducer -->|Command: goto="start_box3" or END| Check{Reducer Routing}
         
         Check -->|Quarantine or No Assets| End1[END - Skip Box 3]
         
         Check -->|Valid & Has Assets| StartBox3[Start Box 3]
         
-        StartBox3 --> OldCalc[Method A: Fictional Yield]
-        StartBox3 --> NewCalc[Method B: Actual Return]
+        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy]
+        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method]
         
-        OldCalc --> Compare[Comparison Node]
-        NewCalc --> Compare
+        Statutory --> Optimize[Fiscal Partner<br/>Optimization]
+        Actual --> Compare[Comparison Node]
+        Optimize --> Compare
         Compare --> End2[END - Final State]
     end
 ```
@@ -84,16 +85,27 @@ graph TD
    - State update: totals, validation status
    - Routing: `"start_box3"` or `END` based on validation/assets
 
-### Phase 3: Box 3 Calculation
+### Phase 3: Box 3 Calculation & Optimization
 1. **Reducer Command Routing**: Determines if Box 3 should run
    - If quarantine or no assets → `END` (skip Box 3)
    - If valid and has assets → `"start_box3"`
 2. **Start Box 3**: Triggers parallel Box 3 calculations
 3. **Parallel Calculations**: Both methods run simultaneously
-   - Fictional Yield (old law)
-   - Actual Return (new law)
-4. **Comparison Agent**: Analyzes differences and generates recommendation
-5. **Final State**: Returns to main graph with calculation results
+   - **Statutory Calculation**: 
+     - Savings Variant (standard for 2023-2025): Categorizes assets into Savings, Other Assets, Debts
+     - Legacy Method (2022 only): Bracket-based with assumed asset mix
+     - For 2022: Automatically selects the lower tax between Legacy and Savings Variant
+   - **Actual Return (Hoge Raad Method)**: 
+     - Based on Supreme Court rulings (June 2024)
+     - Includes unrealized capital gains
+     - Tax-free allowance NOT used in calculation (only in comparison)
+4. **Fiscal Partner Optimization**: 
+   - Runs after statutory calculation
+   - Optimizes Box 3 asset allocation between partners
+   - Maximizes utilization of non-working partner's General Tax Credit (AHK)
+   - Critical for partners born after 1963 (no transferability)
+5. **Comparison Agent**: Analyzes differences between statutory and actual return methods
+6. **Final State**: Returns to main graph with calculation results and recommendations
 
 ## 4. Security Model
 

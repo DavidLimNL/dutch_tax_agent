@@ -29,6 +29,11 @@ def process(
         "-y",
         help="Tax year to process (2022-2025)",
     ),
+    no_fiscal_partner: bool = typer.Option(
+        False,
+        "--no-fiscal-partner",
+        help="Disable fiscal partnership optimization (default: fiscal partner assumed)",
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -52,7 +57,7 @@ def process(
     console.print(f"[bold]Found {len(pdf_files)} PDF files[/bold]\n")
 
     # Create and run agent
-    agent = DutchTaxAgent(tax_year=tax_year)
+    agent = DutchTaxAgent(tax_year=tax_year, has_fiscal_partner=not no_fiscal_partner)
 
     try:
         agent.process_documents(pdf_files)

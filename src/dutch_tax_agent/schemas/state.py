@@ -11,6 +11,7 @@ from dutch_tax_agent.schemas.tax_entities import (
     Box1Income,
     Box3Asset,
     Box3Calculation,
+    FiscalPartner,
 )
 
 
@@ -29,6 +30,12 @@ class TaxGraphState(BaseModel):
         description="Scrubbed documents ready for LLM processing",
     )
     
+    # --- Input: User Profile Data ---
+    fiscal_partner: Optional[FiscalPartner] = Field(
+        None,
+        description="Fiscal partner details for optimization"
+    )
+
     # --- Routing: Classified Documents (Dispatcher Output) ---
     classified_documents: list[dict] = Field(
         default_factory=list,

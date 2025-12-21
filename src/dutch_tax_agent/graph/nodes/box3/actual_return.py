@@ -1,4 +1,4 @@
-"""Actual Return calculation node and logic for Box 3 tax (new law).
+"""Actual Return calculation node and logic for Box 3 tax (Hoge Raad method).
 
 This module contains both the LangGraph node and the calculation logic.
 """
@@ -16,20 +16,16 @@ logger = logging.getLogger(__name__)
 def calculate_actual_return(
     assets: list[Box3Asset],
     tax_year: int,
+    fiscal_partners: bool = False
 ) -> Box3Calculation:
-    """Calculate Box 3 tax using the Actual Return method.
+    """Calculate Box 3 tax using the Actual Return method (Rebuttal Scheme).
     
-    This method:
-    1. Uses the actual realized gains/losses from investments
-    2. Still applies the tax-free allowance
-    3. Taxes the actual gains (not fictional yields)
-    
-    Args:
-        assets: List of Box 3 assets
-        tax_year: Tax year for calculation
-        
-    Returns:
-        Box3Calculation with actual return details
+    Formula per Hoge Raad:
+    Return = Direct Returns (Interest + Dividends + Rent) 
+             + Indirect Returns (Value_End - Value_Start - Deposits + Withdrawals)
+             - Costs (Generally not deductible, except debt interest)
+             
+    Note: Unrealized gains ARE taxable.
     """
     logger.info(f"Calculating Box 3 using Actual Return method for {tax_year}")
 
@@ -40,59 +36,58 @@ def calculate_actual_return(
 
     rates = all_rates[str(tax_year)]
 
-    # Calculate total wealth
+    # Calculate total wealth (Jan 1)
     total_assets = sum(asset.value_eur_jan1 for asset in assets)
-    total_debts = 0.0
+    total_debts = 0.0 # TODO: Handle debts if present
     net_wealth = total_assets - total_debts
 
-    # Calculate actual gains
-    total_gains = 0.0
-    total_losses = 0.0
-
+    # Calculate Actual Return components
+    direct_return = 0.0
+    indirect_return = 0.0
+    
     for asset in assets:
+        # Direct: Dividends, Interest, etc.
         if asset.realized_gains_eur:
-            total_gains += asset.realized_gains_eur
-        if asset.realized_losses_eur:
-            total_losses += abs(asset.realized_losses_eur)
-
-    actual_return = total_gains - total_losses
-
+            direct_return += asset.realized_gains_eur
+            
+        # Indirect: Value changes (Unrealized)
+        # Only if we have end-of-year value. If not, we might assume 0 change or missing data.
+        if asset.value_eur_dec31 is not None:
+            start_val = asset.value_eur_jan1
+            end_val = asset.value_eur_dec31
+            dep = asset.deposits_eur or 0.0
+            withd = asset.withdrawals_eur or 0.0
+            
+            # Delta = (End - Start - Deposits + Withdrawals)
+            delta = end_val - start_val - dep + withd
+            indirect_return += delta
+            
+    total_actual_return = direct_return + indirect_return
+    
     logger.info(
-        f"Actual returns: Gains = €{total_gains:,.2f}, "
-        f"Losses = €{total_losses:,.2f}, "
-        f"Net = €{actual_return:,.2f}"
-    )
-
-    # Apply tax-free allowance (proportional to wealth)
-    tax_free_allowance = rates["tax_free_allowance"]
-
-    # If wealth < allowance, reduce the taxable portion proportionally
-    if net_wealth < tax_free_allowance:
-        allowance_factor = 0.0
-    else:
-        allowance_factor = (net_wealth - tax_free_allowance) / net_wealth
-
-    taxable_gains = max(0, actual_return * allowance_factor)
-
-    logger.info(
-        f"Taxable gains after allowance adjustment: €{taxable_gains:,.2f}"
+        f"Actual returns: Direct = €{direct_return:,.2f}, "
+        f"Indirect (Unrealized) = €{indirect_return:,.2f}, "
+        f"Total = €{total_actual_return:,.2f}"
     )
 
     # Calculate tax
+    # IMPORTANT: Per Hoge Raad ruling, the tax-free allowance is NOT used 
+    # in the actual return calculation itself. The comparison is:
+    # Theoretical_Tax_Actual = Actual_Return_Total * Tax_Rate
+    # Final_Tax = Min(Statutory_Tax, Theoretical_Tax_Actual)
+    # The allowance influences the statutory calculation, but not this one.
     tax_rate = rates["tax_rate"]
-    tax_owed = taxable_gains * tax_rate
-
-    logger.info(
-        f"Actual Return: Taxable gains = €{taxable_gains:,.2f}, "
-        f"Tax (@ {tax_rate*100}%) = €{tax_owed:,.2f}"
-    )
+    theoretical_tax = total_actual_return * tax_rate
+    
+    # If actual return is negative, tax is 0
+    if theoretical_tax < 0:
+        theoretical_tax = 0.0
 
     breakdown = {
-        "total_gains": total_gains,
-        "total_losses": total_losses,
-        "net_actual_return": actual_return,
-        "allowance_factor": allowance_factor,
-        "taxable_gains": taxable_gains,
+        "direct_return": direct_return,
+        "indirect_return": indirect_return,
+        "total_actual_return": total_actual_return,
+        "note": "Includes unrealized gains (paper gains)."
     }
 
     return Box3Calculation(
@@ -101,29 +96,26 @@ def calculate_actual_return(
         total_assets_jan1=total_assets,
         total_debts_jan1=total_debts,
         net_wealth_jan1=net_wealth,
-        tax_free_allowance=tax_free_allowance,
-        taxable_wealth=net_wealth - tax_free_allowance,
-        fictional_yield_rate=None,
-        actual_gains=actual_return,
-        deemed_income=taxable_gains,
+        tax_free_allowance=rates["tax_free_allowance"] * (2 if fiscal_partners else 1),
+        taxable_wealth=net_wealth, # Not relevant for this calc but kept for schema
+        deemed_income=total_actual_return,
         tax_rate=tax_rate,
-        tax_owed=tax_owed,
+        tax_owed=theoretical_tax,
         calculation_breakdown=breakdown,
+        actual_gains=total_actual_return
     )
 
 
 def actual_return_node(state: TaxGraphState) -> dict:
-    """LangGraph node that calculates Box 3 using actual return method.
-    
-    Args:
-        state: Main graph state with box3_asset_items
-        
-    Returns:
-        Dict with actual_return_calculation result
-    """
+    """LangGraph node that calculates Box 3 using actual return method."""
     logger.info("Running actual return calculation node")
+    
+    has_partner = state.fiscal_partner is not None and state.fiscal_partner.is_fiscal_partner
 
-    result = calculate_actual_return(state.box3_asset_items, state.tax_year)
+    result = calculate_actual_return(
+        state.box3_asset_items, 
+        state.tax_year,
+        has_partner
+    )
 
     return {"box3_actual_return_result": result}
-

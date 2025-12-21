@@ -41,18 +41,19 @@ graph TD
         Aggregate --> Reducer[Reducer Node]
     end
 
-    subgraph "Phase 3: Logic & Review"
+    subgraph "Phase 3: Box 3 Calculation & Optimization"
         Reducer -->|Command: routes based on validation| Check{Reducer Routing}
         
         Check -->|Quarantine or No Assets| End1[END - Skip Box 3]
         
         Check -->|Valid & Has Assets| StartBox3[Start Box 3]
         
-        StartBox3 --> OldCalc[Method A: Fictional Yield]
-        StartBox3 --> NewCalc[Method B: Actual Return]
+        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy]
+        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method]
         
-        OldCalc --> Compare[Comparison Node]
-        NewCalc --> Compare
+        Statutory --> Optimize[Fiscal Partner<br/>Optimization]
+        Actual --> Compare[Comparison Node]
+        Optimize --> Compare
         Compare --> End2[END - Final State]
     end
 ```
@@ -78,11 +79,17 @@ cp .env.example .env
 ### Run the Agent
 
 ```bash
-# Process tax documents
+# Process tax documents (fiscal partner assumed by default)
 uv run python -m dutch_tax_agent.main --input-dir ./sample_docs
 
+# Disable fiscal partner optimization
+uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --no-fiscal-partner
+
 # Interactive mode
-uv run python -m dutch_tax_agent.cli
+uv run python -m dutch_tax_agent.cli process --input-dir ./sample_docs
+
+# With fiscal partner disabled
+uv run python -m dutch_tax_agent.cli process --input-dir ./sample_docs --no-fiscal-partner
 ```
 
 ## 📁 Project Structure
@@ -113,18 +120,21 @@ dutch_tax_agent/
 │       │   │   ├── reducer.py         # Totals & validation
 │       │   │   ├── validators.py      # Data validation
 │       │   │   └── box3/             # Box 3 calculation nodes
-│       │   │       ├── fictional_yield.py  # Node + calculation logic
-│       │   │       ├── actual_return.py    # Node + calculation logic
-│       │   │       └── comparison.py       # Node + comparison logic
+│       │   │       ├── statutory_calculation.py  # Savings Variant / Legacy method
+│       │   │       ├── actual_return.py          # Hoge Raad actual return method
+│       │   │       ├── optimization.py         # Fiscal partner optimization
+│       │   │       ├── comparison.py             # Method comparison
+│       │   │       └── start_box3.py             # Box 3 entry point
 │       │   └── agents/                # LLM-based parser agents
 │       │       ├── dutch_parser.py
 │       │       ├── us_broker_parser.py
 │       │       └── salary_parser.py
 │       ├── tools/                     # Deterministic tools
 │       │   ├── currency.py            # ECB rate fetching
+│       │   ├── tax_credits.py         # General Tax Credit (AHK) calculation
 │       │   └── validators.py          # Type checking
 │       └── data/
-│           ├── box3_rates_2022_2025.json  # Fictional yield tables
+│           ├── box3_rates_2022_2025.json  # Box 3 rates (Savings Variant + Legacy)
 │           └── pii_names.json.example     # Template for PII names (see Security section)
 ├── tests/
 │   ├── unit/
@@ -185,12 +195,28 @@ The system uses a configuration file to recognize and scrub personal names. **Th
 
 ## 📊 Box 3 Wealth Tax Logic
 
-The system handles the legal complexity of Dutch Box 3 by running **two parallel calculations**:
+The system handles the legal complexity of Dutch Box 3 (2022-2025) by implementing multiple calculation methods:
 
-1. **Method A (Fictional Yield)**: Uses statutory rates from the Belastingdienst
-2. **Method B (Actual Return)**: Uses realized gains from bank statements
+### Calculation Methods
 
-The comparison agent then presents both options to the user with recommendations.
+1. **Statutory Calculation (Savings Variant)**: 
+   - Standard method for 2023-2025
+   - Categorizes assets into Savings, Other Assets (stocks/ETFs/crypto), and Debts
+   - Applies fictitious yield rates per category
+   - For 2022: Also calculates Legacy (bracket-based) method and selects the lower tax
+
+2. **Actual Return (Hoge Raad Method)**:
+   - Rebuttal scheme based on Supreme Court rulings (June 2024)
+   - Includes unrealized capital gains ("paper gains")
+   - Formula: Direct Returns + (Value_End - Value_Start - Deposits + Withdrawals)
+   - Tax-free allowance is NOT used in this calculation (only in comparison)
+
+3. **Fiscal Partner Optimization**:
+   - Automatically allocates Box 3 assets between partners to maximize tax credits
+   - Utilizes the non-working partner's General Tax Credit (AHK)
+   - Critical for partners born after 1963 (no transferability)
+
+The comparison agent presents both statutory and actual return methods with recommendations, showing potential savings.
 
 ## 🧪 Testing
 
@@ -215,6 +241,23 @@ Key environment variables:
 - `LANGSMITH_API_KEY`: For tracing (optional)
 - `LANGSMITH_ENDPOINT`: LangSmith endpoint URL (e.g., `https://eu.smith.langchain.com` for EU region)
 - `ECB_API_KEY`: For currency rates (optional, falls back to cached rates)
+
+### Fiscal Partner Configuration
+
+By default, the system assumes a fiscal partnership (enables optimization). To disable:
+
+```bash
+# CLI flag
+--no-fiscal-partner
+
+# Or in code
+agent = DutchTaxAgent(tax_year=2024, has_fiscal_partner=False)
+```
+
+The default fiscal partner configuration:
+- Date of birth: 1970-01-01 (born after 1963 threshold)
+- Box 1 income: €0 (non-working partner)
+- Enables Box 3 asset allocation optimization
 
 ### PII Name Configuration
 

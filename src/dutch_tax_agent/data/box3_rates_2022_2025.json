@@ -2,129 +2,99 @@
   "2022": {
     "tax_free_allowance": 50650,
     "tax_rate": 0.31,
-    "brackets": [
-      {
-        "min_wealth": 0,
-        "max_wealth": 50000,
-        "savings_percentage": 0.67,
-        "investments_percentage": 0.33,
-        "fictional_yield_savings": 0.0001,
-        "fictional_yield_investments": 0.0592
-      },
-      {
-        "min_wealth": 50000,
-        "max_wealth": 950000,
-        "savings_percentage": 0.21,
-        "investments_percentage": 0.79,
-        "fictional_yield_savings": 0.0001,
-        "fictional_yield_investments": 0.0592
-      },
-      {
-        "min_wealth": 950000,
-        "max_wealth": null,
-        "savings_percentage": 0.0,
-        "investments_percentage": 1.0,
-        "fictional_yield_savings": 0.0001,
-        "fictional_yield_investments": 0.0592
-      }
-    ]
+    "legacy_system": {
+        "brackets": [
+        {
+            "min_wealth": 0,
+            "max_wealth": 50650,
+            "savings_percentage": 0.67,
+            "investments_percentage": 0.33,
+            "yield_savings": -0.0001,
+            "yield_investments": 0.0553
+        },
+        {
+            "min_wealth": 50650,
+            "max_wealth": 962350,
+            "savings_percentage": 0.21,
+            "investments_percentage": 0.79,
+            "yield_savings": -0.0001,
+            "yield_investments": 0.0553
+        },
+        {
+            "min_wealth": 962350,
+            "max_wealth": null,
+            "savings_percentage": 0.0,
+            "investments_percentage": 1.0,
+            "yield_savings": -0.0001,
+            "yield_investments": 0.0553
+        }
+        ]
+    },
+    "savings_variant": {
+        "yield_savings": 0.0000,
+        "yield_other": 0.0553,
+        "yield_debts": 0.0228,
+        "debt_threshold": 3200
+    },
+    "general_tax_credit": {
+        "max_credit": 2888,
+        "pivot_income": 21317,
+        "phase_out_rate": 0.06007,
+        "end_point": 69398
+    }
   },
   "2023": {
     "tax_free_allowance": 57000,
     "tax_rate": 0.32,
-    "brackets": [
-      {
-        "min_wealth": 0,
-        "max_wealth": 57000,
-        "savings_percentage": 0.67,
-        "investments_percentage": 0.33,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0604
-      },
-      {
-        "min_wealth": 57000,
-        "max_wealth": 1000000,
-        "savings_percentage": 0.21,
-        "investments_percentage": 0.79,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0604
-      },
-      {
-        "min_wealth": 1000000,
-        "max_wealth": null,
-        "savings_percentage": 0.0,
-        "investments_percentage": 1.0,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0604
-      }
-    ]
+    "savings_variant": {
+        "yield_savings": 0.0092,
+        "yield_other": 0.0617,
+        "yield_debts": 0.0246,
+        "debt_threshold": 3400
+    },
+    "general_tax_credit": {
+        "max_credit": 3070,
+        "pivot_income": 22660,
+        "phase_out_rate": 0.06095,
+        "end_point": 73031
+    }
   },
   "2024": {
     "tax_free_allowance": 57000,
     "tax_rate": 0.36,
-    "brackets": [
-      {
-        "min_wealth": 0,
-        "max_wealth": 57000,
-        "savings_percentage": 0.67,
-        "investments_percentage": 0.33,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      },
-      {
-        "min_wealth": 57000,
-        "max_wealth": 1000000,
-        "savings_percentage": 0.21,
-        "investments_percentage": 0.79,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      },
-      {
-        "min_wealth": 1000000,
-        "max_wealth": null,
-        "savings_percentage": 0.0,
-        "investments_percentage": 1.0,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      }
-    ]
+    "savings_variant": {
+        "yield_savings": 0.0103,
+        "yield_other": 0.0604,
+        "yield_debts": 0.0247,
+        "debt_threshold": 3700
+    },
+    "general_tax_credit": {
+        "max_credit": 3362,
+        "pivot_income": 24812,
+        "phase_out_rate": 0.0663,
+        "end_point": 75518
+    }
   },
   "2025": {
-    "tax_free_allowance": 57000,
+    "tax_free_allowance": 57684,
     "tax_rate": 0.36,
-    "brackets": [
-      {
-        "min_wealth": 0,
-        "max_wealth": 57000,
-        "savings_percentage": 0.67,
-        "investments_percentage": 0.33,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      },
-      {
-        "min_wealth": 57000,
-        "max_wealth": 1000000,
-        "savings_percentage": 0.21,
-        "investments_percentage": 0.79,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      },
-      {
-        "min_wealth": 1000000,
-        "max_wealth": null,
-        "savings_percentage": 0.0,
-        "investments_percentage": 1.0,
-        "fictional_yield_savings": 0.0092,
-        "fictional_yield_investments": 0.0617
-      }
-    ]
+    "savings_variant": {
+        "yield_savings": 0.0144,
+        "yield_other": 0.0588,
+        "yield_debts": 0.0262,
+        "debt_threshold": 3800
+    },
+    "general_tax_credit": {
+        "max_credit": 3068,
+        "pivot_income": 28406,
+        "phase_out_rate": 0.06337,
+        "end_point": 76817
+    }
   },
   "_notes": {
-    "description": "Box 3 fictional yield rates for Dutch wealth tax (2022-2025)",
-    "source": "Belastingdienst official rates",
-    "disclaimer": "These rates are for demonstration purposes. Verify with official sources.",
-    "methodology": "The fictional yield method assumes a percentage of wealth is 'savings' and the rest is 'investments', each with different yield rates."
+    "description": "Box 3 fictional yield rates and Box 1 credit params (2022-2025)",
+    "source": "Belastingdienst official rates & Dutch Tax Calculation Box 1 & 3.md",
+    "disclaimer": "2025 rates are provisional. Check official sources.",
+    "methodology": "Includes both Legacy (bracket-based) and Savings Variant (category-based)."
   }
 }
-
-

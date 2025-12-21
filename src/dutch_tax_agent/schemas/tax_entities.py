@@ -6,6 +6,32 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class FiscalPartner(BaseModel):
+    """Fiscal partner (non-working partner) information for tax optimization.
+    
+    This represents Partner B in a fiscal partnership where only one partner
+    generates Box 1 income. The date of birth is critical for determining
+    eligibility for the "Aanrechtsubsidie" (transferability of General Tax Credit).
+    
+    Key rules:
+    - Born before Jan 1, 1963: Can transfer 100% of AHK to working partner (2022)
+    - Born on/after Jan 1, 1963: Transferability phased out (0% in 2023-2025)
+    - However, the partner can still use their own credit against Box 3 tax
+    """
+
+    date_of_birth: date = Field(
+        description="Date of birth (critical for Aanrechtsubsidie eligibility)"
+    )
+    box1_income_gross: float = Field(
+        default=0.0,
+        description="Box 1 gross income (typically 0.0 for non-working partner)",
+    )
+    is_fiscal_partner: bool = Field(
+        default=True,
+        description="Whether this is a fiscal partnership",
+    )
+
+
 class Box1Income(BaseModel):
     """Box 1: Income from employment, business, or home ownership."""
 
@@ -63,6 +89,20 @@ class Box3Asset(BaseModel):
         description="Realized losses during the year",
     )
     
+    # Additional fields for Actual Return calculation (unrealized gains)
+    value_eur_dec31: Optional[float] = Field(
+        None,
+        description="Asset value in EUR on December 31st (end of tax year) for unrealized gains calculation",
+    )
+    deposits_eur: Optional[float] = Field(
+        None,
+        description="Money deposited/added to this asset during the tax year",
+    )
+    withdrawals_eur: Optional[float] = Field(
+        None,
+        description="Money withdrawn/removed from this asset during the tax year",
+    )
+    
     # Original values
     original_value: Optional[float] = None
     original_currency: str = "EUR"
@@ -93,7 +133,7 @@ class Box3Asset(BaseModel):
 class Box3Calculation(BaseModel):
     """Result of a Box 3 tax calculation (either Fictional Yield or Actual Return)."""
 
-    method: Literal["fictional_yield", "actual_return"] = Field(
+    method: Literal["fictional_yield", "actual_return", "savings_variant"] = Field(
         description="Which calculation method was used"
     )
     tax_year: int = Field(description="Tax year (2022-2025)")
@@ -129,6 +169,12 @@ class Box3Calculation(BaseModel):
         description="Box 3 tax rate (32% in recent years)",
     )
     tax_owed: float = Field(description="Final Box 3 tax amount")
+    
+    # Optimization results
+    partner_split: Optional[dict[str, float]] = Field(
+        None,
+        description="Optimization split: {'partner_a': amount, 'partner_b': amount}"
+    )
     
     # Breakdown (for transparency)
     calculation_breakdown: dict = Field(

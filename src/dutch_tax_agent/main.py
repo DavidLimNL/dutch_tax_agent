@@ -34,18 +34,20 @@ console = Console()
 class DutchTaxAgent:
     """Main orchestrator for the Dutch Tax Agent."""
 
-    def __init__(self, tax_year: int = 2024) -> None:
+    def __init__(self, tax_year: int = 2024, has_fiscal_partner: bool = True) -> None:
         """Initialize the tax agent.
         
         Args:
             tax_year: Tax year to process (2022-2025)
+            has_fiscal_partner: Whether to assume fiscal partnership (default: True)
         """
         self.tax_year = tax_year
+        self.has_fiscal_partner = has_fiscal_partner
         self.pdf_parser = PDFParser()
         self.pii_scrubber = PIIScrubber()
         self.graph = create_tax_graph()
 
-        logger.info(f"Initialized Dutch Tax Agent for tax year {tax_year}")
+        logger.info(f"Initialized Dutch Tax Agent for tax year {tax_year} (fiscal partner: {has_fiscal_partner})")
 
     def process_documents(self, pdf_paths: list[Path]) -> TaxGraphState:
         """Process a list of PDF documents through the entire pipeline.
@@ -112,9 +114,24 @@ class DutchTaxAgent:
         # Phase 2 & 3: LangGraph Processing
         console.print("\n[bold]Phase 2: LangGraph Map-Reduce Extraction[/bold]")
 
+        # Set up fiscal partner if assumed (default behavior)
+        fiscal_partner = None
+        if self.has_fiscal_partner:
+            from datetime import date
+            from dutch_tax_agent.schemas.tax_entities import FiscalPartner
+            # Default: Assume partner born after 1963 (no transferability, but can use own credit)
+            # User can override this if needed via future configuration
+            fiscal_partner = FiscalPartner(
+                date_of_birth=date(1970, 1, 1),  # Default DOB (after 1963 threshold)
+                box1_income_gross=0.0,
+                is_fiscal_partner=True
+            )
+            logger.info("Fiscal partner assumed (default configuration)")
+
         initial_state = TaxGraphState(
             documents=scrubbed_docs,
             tax_year=self.tax_year,
+            fiscal_partner=fiscal_partner,
         )
 
         with Progress(
@@ -223,12 +240,13 @@ class DutchTaxAgent:
                 console.print(f"  • {error}")
 
 
-def main(input_dir: Optional[Path] = None, tax_year: int = 2024) -> None:
+def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_partner: bool = True) -> None:
     """Main entry point.
     
     Args:
         input_dir: Directory containing PDF files
         tax_year: Tax year to process (2022-2025)
+        has_fiscal_partner: Whether to assume fiscal partnership (default: True)
     """
     if not input_dir:
         input_dir = Path("./sample_docs")
@@ -247,7 +265,7 @@ def main(input_dir: Optional[Path] = None, tax_year: int = 2024) -> None:
     console.print(f"[bold]Found {len(pdf_files)} PDF files[/bold]\n")
 
     # Create agent and process
-    agent = DutchTaxAgent(tax_year=tax_year)
+    agent = DutchTaxAgent(tax_year=tax_year, has_fiscal_partner=has_fiscal_partner)
 
     try:
         agent.process_documents(pdf_files)
@@ -275,6 +293,11 @@ if __name__ == "__main__":
         default=2024,
         help="Tax year to process (2022-2025, default: 2024)",
     )
+    parser.add_argument(
+        "--no-fiscal-partner",
+        action="store_true",
+        help="Disable fiscal partnership optimization (default: fiscal partner assumed)",
+    )
     
     args = parser.parse_args()
     
@@ -282,5 +305,5 @@ if __name__ == "__main__":
     input_dir_str = os.path.expanduser(args.input_dir)
     input_dir = Path(input_dir_str)
     
-    main(input_dir=input_dir, tax_year=args.year)
+    main(input_dir=input_dir, tax_year=args.year, has_fiscal_partner=not args.no_fiscal_partner)
 
