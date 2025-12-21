@@ -41,6 +41,10 @@ class TaxGraphState(BaseModel):
         default_factory=list,
         description="Documents classified and ready for routing to parser agents",
     )
+    quarantined_documents: list[dict] = Field(
+        default_factory=list,
+        description="Documents quarantined due to tax year mismatch or other issues",
+    )
     
     # --- Processing: Extraction Results (Phase 2 Output) ---
     # Using Annotated with 'add' operator to accumulate results from parallel parser agents

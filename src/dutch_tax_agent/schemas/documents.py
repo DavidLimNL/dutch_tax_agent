@@ -35,6 +35,10 @@ class DocumentClassification(BaseModel):
     ]
     confidence: float = Field(ge=0.0, le=1.0, description="Classification confidence")
     reasoning: str = Field(description="Why this classification was chosen")
+    tax_year: int | None = Field(
+        default=None,
+        description="Tax year extracted from document (None if not found or unclear)",
+    )
 
 
 class ExtractionResult(BaseModel):

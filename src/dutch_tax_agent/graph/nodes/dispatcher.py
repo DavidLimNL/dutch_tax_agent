@@ -3,6 +3,7 @@
 import logging
 
 from langchain_core.messages import HumanMessage
+from langgraph.graph import END
 from langgraph.types import Command, Send
 
 from dutch_tax_agent.llm_factory import create_llm
@@ -13,18 +14,20 @@ logger = logging.getLogger(__name__)
 
 
 def classify_document(doc_text: str, doc_id: str) -> DocumentClassification:
-    """Classify a document to determine which parser agent to use.
+    """Classify a document to determine which parser agent to use and extract tax year.
     
     Args:
         doc_text: Scrubbed document text
         doc_id: Document ID
         
     Returns:
-        DocumentClassification with type and confidence
+        DocumentClassification with type, confidence, and tax year
     """
     llm = create_llm(temperature=0)
 
-    prompt = f"""Classify this financial document into ONE of these categories:
+    prompt = f"""Classify this financial document and extract the tax year.
+
+First, classify into ONE of these categories:
 - dutch_bank_statement: Dutch bank statement (ING, ABN AMRO, Rabobank, etc.)
 - us_broker_statement: US brokerage statement (Interactive Brokers, Schwab, etc.)
 - crypto_broker_statement: Crypto exchange/broker statement (Coinbase, Binance, Kraken, etc.)
@@ -32,11 +35,21 @@ def classify_document(doc_text: str, doc_id: str) -> DocumentClassification:
 - mortgage_statement: Mortgage or property-related document
 - unknown: Cannot determine type
 
-Document text (first 500 chars):
-{doc_text[:500]}
+Second, extract the tax year from the document. Look for:
+- Dates in the document (especially January 1st dates or statement periods)
+- Year references (e.g., "2024", "tax year 2024", "fiscal year 2024")
+- Statement periods that indicate the tax year
 
-Respond with ONLY the category name and your confidence (0-1), separated by a comma.
-Example: dutch_bank_statement,0.95
+Document text (first 1000 chars):
+{doc_text[:1000]}
+
+Respond with THREE values separated by commas:
+1. Category name
+2. Confidence (0-1)
+3. Tax year (as integer, or "null" if not found/unclear)
+
+Example: dutch_bank_statement,0.95,2024
+Example if year unclear: us_broker_statement,0.90,null
 """
 
     try:
@@ -44,12 +57,10 @@ Example: dutch_bank_statement,0.95
         response_text = response.content.strip()
 
         # Parse response
-        parts = response_text.split(",")
+        parts = [p.strip() for p in response_text.split(",")]
         doc_type = parts[0].strip()
         
         # Extract confidence if provided, otherwise default to 0.8
-        # 0.8 is a moderate confidence level - high enough to proceed with routing,
-        # but low enough to indicate uncertainty when LLM doesn't provide explicit confidence
         if len(parts) > 1:
             try:
                 confidence = float(parts[1].strip())
@@ -68,13 +79,38 @@ Example: dutch_bank_statement,0.95
             )
             confidence = 0.8
 
-        logger.info(f"Classified doc {doc_id} as {doc_type} (confidence: {confidence})")
+        # Extract tax year if provided
+        tax_year = None
+        if len(parts) > 2:
+            tax_year_str = parts[2].strip().lower()
+            if tax_year_str != "null" and tax_year_str != "none":
+                try:
+                    tax_year = int(tax_year_str)
+                    # Validate reasonable tax year range (2000-2100)
+                    if tax_year < 2000 or tax_year > 2100:
+                        logger.warning(
+                            f"Tax year {tax_year} seems unreasonable for {doc_id}, "
+                            f"setting to None"
+                        )
+                        tax_year = None
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Could not parse tax year from LLM response: {tax_year_str}. "
+                        f"Response: {response_text}"
+                    )
+                    tax_year = None
+
+        logger.info(
+            f"Classified doc {doc_id} as {doc_type} "
+            f"(confidence: {confidence}, tax_year: {tax_year})"
+        )
 
         return DocumentClassification(
             doc_id=doc_id,
             doc_type=doc_type,  # type: ignore
             confidence=confidence,
             reasoning="Classified based on document content analysis",
+            tax_year=tax_year,
         )
 
     except Exception as e:
@@ -84,11 +120,15 @@ Example: dutch_bank_statement,0.95
             doc_type="unknown",
             confidence=0.0,
             reasoning=f"Classification failed: {e}",
+            tax_year=None,
         )
 
 
 def dispatcher_node(state: TaxGraphState) -> Command:
     """Dispatcher node: Classifies documents and routes to parser agents.
+    
+    Checks both document type and tax year. Documents with mismatched tax years
+    are quarantined instead of being routed to parsers.
     
     Uses Command to both update state and perform parallel routing via Send objects.
     
@@ -98,7 +138,9 @@ def dispatcher_node(state: TaxGraphState) -> Command:
     Returns:
         Command with state updates and Send objects for parallel routing
     """
-    logger.info(f"Dispatching {len(state.documents)} documents")
+    logger.info(
+        f"Dispatching {len(state.documents)} documents for tax year {state.tax_year}"
+    )
 
     if not state.documents:
         logger.warning("No documents to dispatch. Check if PII scrubbing succeeded.")
@@ -108,11 +150,41 @@ def dispatcher_node(state: TaxGraphState) -> Command:
         )
 
     classified_docs = []
+    quarantined_docs = []
     sends = []
 
     for doc in state.documents:
-        # Classify the document
+        # Classify the document (includes type and tax year extraction)
         classification = classify_document(doc.scrubbed_text, doc.doc_id)
+
+        # Check if tax year matches
+        tax_year_mismatch = False
+        if classification.tax_year is not None:
+            if classification.tax_year != state.tax_year:
+                tax_year_mismatch = True
+                logger.warning(
+                    f"Tax year mismatch for doc {doc.doc_id} ({doc.filename}): "
+                    f"document year={classification.tax_year}, "
+                    f"calculation year={state.tax_year}. Quarantining."
+                )
+        else:
+            # If tax year couldn't be extracted, log a warning but don't quarantine
+            # (we allow processing if year is unclear, but user should verify)
+            logger.warning(
+                f"Could not extract tax year from doc {doc.doc_id} ({doc.filename}). "
+                f"Proceeding with processing, but user should verify."
+            )
+
+        # If tax year doesn't match, quarantine the document
+        if tax_year_mismatch:
+            quarantined_docs.append({
+                "doc_id": doc.doc_id,
+                "filename": doc.filename,
+                "reason": f"Tax year mismatch: document year={classification.tax_year}, "
+                         f"calculation year={state.tax_year}",
+                "classification": classification.model_dump(),
+            })
+            continue
 
         # Route to appropriate parser based on classification
         if classification.doc_type == "dutch_bank_statement":
@@ -155,15 +227,32 @@ def dispatcher_node(state: TaxGraphState) -> Command:
 
         logger.info(f"Routing doc {doc.doc_id} to {target_node}")
 
-    logger.info(f"Created {len(sends)} Send objects for parallel processing")
+    # Determine status based on whether any documents were quarantined
+    if quarantined_docs:
+        logger.warning(
+            f"Quarantined {len(quarantined_docs)} document(s) due to tax year mismatch"
+        )
+        status = "quarantine" if not sends else "extracting"
+    else:
+        status = "extracting"
+
+    logger.info(
+        f"Created {len(sends)} Send objects for parallel processing, "
+        f"quarantined {len(quarantined_docs)} document(s)"
+    )
 
     # Use Command to update state and route to multiple nodes in parallel
+    # If all documents were quarantined, end the graph
+    goto_value = sends if sends else END
+    
     return Command(
         update={
             "classified_documents": classified_docs,
-            "status": "extracting",
+            "quarantined_documents": quarantined_docs,
+            "status": status,
+            "requires_human_review": len(quarantined_docs) > 0,
         },
-        goto=sends,
+        goto=goto_value,
     )
 
 
