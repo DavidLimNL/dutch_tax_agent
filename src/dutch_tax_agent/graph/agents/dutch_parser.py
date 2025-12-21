@@ -97,7 +97,16 @@ Return JSON in this EXACT format:
 
 IMPORTANT DATE MAPPING RULES:
 - If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
-- If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
+- ⚠️ CRITICAL FOR DECEMBER STATEMENTS ⚠️:
+  If this is a December statement (document_date_range.end_date = 2024-12-31 or close to it):
+  - value_eur_dec31 MUST be set to the Dec 31 value shown in the document
+  - value_eur_jan1 MUST be set to null (we don't have Jan 1 data in a December statement)
+  - reference_date MUST be "2024-01-01" (or the tax year's Jan 1, even though we don't have that value)
+  - dec31_reference_date MUST be "2024-12-31" (or the actual Dec 31 date shown)
+  - DO NOT put the Dec 31 value into value_eur_jan1 - that is WRONG
+  - Example: December 2024 statement showing €25,000 in savings on 31-Dec-2024:
+    * CORRECT: value_eur_jan1=null, value_eur_dec31=25000, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+    * WRONG: value_eur_jan1=25000, value_eur_dec31=null, reference_date="2024-12-31" (this is incorrect!)
 - ⚠️ CRITICAL FOR JANUARY STATEMENTS WITH BOTH DATES ⚠️:
   If a January statement shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024):
   - value_eur_jan1 = 31-Dec (previous year) value (e.g., 31-Dec-2023 value)
@@ -107,6 +116,8 @@ IMPORTANT DATE MAPPING RULES:
   - DO NOT confuse the field names: "value_eur_jan1" means "value for Jan 1 reference date", NOT "value on Jan 31"
   - DO NOT swap values: The 31-Dec value goes to value_eur_jan1, NOT to value_eur_dec31
   - The 31-Jan value should be IGNORED for Box 3 purposes (it's too far from the Jan 1 reference date)
+  - KEY DISTINCTION: January statements show PREVIOUS year's Dec 31 → goes to value_eur_jan1
+  - December statements show CURRENT tax year's Dec 31 → goes to value_eur_dec31
 - If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
 - If document only has one of these dates, that's fine - set the other to null
 - If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range

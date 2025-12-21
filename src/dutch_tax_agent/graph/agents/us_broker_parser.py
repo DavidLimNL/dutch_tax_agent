@@ -68,7 +68,17 @@ IMPORTANT:
 2. Find the portfolio value on or near January 1st (the reference date for Box 3)
 3. Find the portfolio value on or near December 31st (end of tax year, needed for actual return calculation)
 4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
-5. ⚠️ CRITICAL DATE MAPPING FOR JANUARY STATEMENTS ⚠️:
+5. ⚠️ CRITICAL DATE MAPPING FOR DECEMBER STATEMENTS ⚠️:
+   If this is a December statement (document_date_range.end_date = 2024-12-31 or close to it):
+   - value_eur_dec31 MUST be set to the Dec 31 value shown in the document
+   - value_eur_jan1 MUST be set to null (we don't have Jan 1 data in a December statement)
+   - reference_date MUST be "2024-01-01" (the tax year's Jan 1, even though we don't have that value)
+   - dec31_reference_date MUST be "2024-12-31" (the actual Dec 31 date shown)
+   - DO NOT put the Dec 31 value into value_eur_jan1 - that is WRONG
+   - Example: December 2024 statement showing $1,489.79 cash on 31-Dec-2024:
+     * CORRECT: value_eur_jan1=null, value_eur_dec31=1489.79, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+     * WRONG: value_eur_jan1=1489.79, value_eur_dec31=null, reference_date="2024-12-31" (this is incorrect!)
+6. ⚠️ CRITICAL DATE MAPPING FOR JANUARY STATEMENTS ⚠️:
    If this is a January statement that shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024):
    - value_eur_jan1 MUST be set to the 31-Dec (previous year) value (e.g., the 31-Dec-2023 value)
    - value_eur_dec31 MUST be set to null (we don't have Dec 31 of the tax year yet)
@@ -77,10 +87,12 @@ IMPORTANT:
    - DO NOT use the 31-Jan value for value_eur_jan1 - that is WRONG
    - DO NOT use the 31-Dec value for value_eur_dec31 - that is WRONG
    - The field name "value_eur_jan1" means "value for the Jan 1 reference date", NOT "value on Jan 31"
+   - KEY DISTINCTION: January statements show PREVIOUS year's Dec 31 → goes to value_eur_jan1
+   - December statements show CURRENT tax year's Dec 31 → goes to value_eur_dec31
    - Example: If cash shows $2,907.27 on 31-Dec-2023 and $3,061.94 on 31-Jan-2024:
      * CORRECT: value_eur_jan1=2907.27, value_eur_dec31=null, reference_date="2023-12-31"
      * WRONG: value_eur_jan1=3061.94, value_eur_dec31=2907.27 (this swaps the values!)
-6. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
+7. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
 7. Extract CASH/FIAT balance separately from INVESTMENT portfolio value (stocks, crypto, etc.) - these are INDIVIDUAL values, NOT the total account value. Look for separate line items showing cash balance vs. investment holdings value.
 8. Find realized gains/losses for the tax year (typically only for investments)
 9. Amounts may be in USD, EUR, or other currencies (preserve original currency)
@@ -118,7 +130,16 @@ Return JSON in this EXACT format:
 
 IMPORTANT DATE MAPPING RULES:
 - If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
-- If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
+- ⚠️ CRITICAL FOR DECEMBER STATEMENTS ⚠️:
+  If this is a December statement (document_date_range.end_date = 2024-12-31 or close to it):
+  - value_eur_dec31 MUST be set to the Dec 31 value shown in the document
+  - value_eur_jan1 MUST be set to null (we don't have Jan 1 data in a December statement)
+  - reference_date MUST be "2024-01-01" (or the tax year's Jan 1, even though we don't have that value)
+  - dec31_reference_date MUST be "2024-12-31" (or the actual Dec 31 date shown)
+  - DO NOT put the Dec 31 value into value_eur_jan1 - that is WRONG
+  - Example: December 2024 statement showing $1,489.79 cash on 31-Dec-2024:
+    * CORRECT: value_eur_jan1=null, value_eur_dec31=1489.79, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+    * WRONG: value_eur_jan1=1489.79, value_eur_dec31=null, reference_date="2024-12-31" (this is incorrect!)
 - ⚠️ CRITICAL FOR JANUARY STATEMENTS WITH BOTH DATES ⚠️:
   If a January statement shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024):
   - value_eur_jan1 = 31-Dec (previous year) value (e.g., 31-Dec-2023 value)
@@ -128,6 +149,8 @@ IMPORTANT DATE MAPPING RULES:
   - DO NOT confuse the field names: "value_eur_jan1" means "value for Jan 1 reference date", NOT "value on Jan 31"
   - DO NOT swap values: The 31-Dec value goes to value_eur_jan1, NOT to value_eur_dec31
   - The 31-Jan value should be IGNORED for Box 3 purposes (it's too far from the Jan 1 reference date)
+  - KEY DISTINCTION: January statements show PREVIOUS year's Dec 31 → goes to value_eur_jan1
+  - December statements show CURRENT tax year's Dec 31 → goes to value_eur_dec31
 - If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
 - If document only has one of these dates, that's fine - set the other to null
 - If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range
@@ -135,6 +158,15 @@ IMPORTANT DATE MAPPING RULES:
 
 Examples:
 - US Broker on 1-Jan-2024: $10,000 cash and $50,000 in stocks → TWO items (savings=$10k, stocks=$50k, both with value_eur_jan1 set)
+- ⚠️ DECEMBER STATEMENT (CRITICAL EXAMPLE) ⚠️:
+  US Broker December 2024 statement (end_date: 2024-12-31) showing:
+  - Cash: $1,489.79 on 31-Dec-2024
+  - Stocks: $350,377.84 on 31-Dec-2024
+  → CORRECT extraction:
+    * Cash item: value_eur_jan1=null, value_eur_dec31=1489.79, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+    * Stocks item: value_eur_jan1=null, value_eur_dec31=350377.84, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+  → WRONG extraction (DO NOT DO THIS):
+    * Cash item: value_eur_jan1=1489.79, value_eur_dec31=null, reference_date="2024-12-31" (Dec 31 value should go to value_eur_dec31!)
 - Crypto Exchange on 31-Dec-2024: €5,000 EUR balance and 2.5 BTC worth €100,000 → TWO items (savings=€5k, crypto=€100k, both with value_eur_dec31 set)
 - US Broker on 31-Dec-2024: $15,000 cash but NO investment holdings (shares were sold) → TWO items (savings=$15k with value_eur_dec31, stocks=$0 with value_eur_dec31=0)
 - US Broker on 1-Jan-2024: $0 cash but $30,000 in stocks → TWO items (savings=$0 with value_eur_jan1=0, stocks=$30k with value_eur_jan1)
