@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from dutch_tax_agent.schemas.tax_entities import Box1Income, Box3Asset
+from dutch_tax_agent.tools.currency import parse_currency_string
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class DataValidator:
         """Validate that a value is a valid numeric amount.
         
         Args:
-            value: Value to validate
+            value: Value to validate (can be number or string with currency symbols)
             field_name: Name of field (for error messages)
             allow_negative: Whether negative values are allowed
             
@@ -35,7 +36,11 @@ class DataValidator:
             ValidationError: If validation fails
         """
         try:
-            amount = float(value)
+            # If it's a string, try to parse it as a currency string first
+            if isinstance(value, str):
+                amount = parse_currency_string(value)
+            else:
+                amount = float(value)
         except (TypeError, ValueError) as e:
             raise ValidationError(
                 f"Invalid amount for {field_name}: '{value}' is not a number"
@@ -132,6 +137,15 @@ class DataValidator:
                 data.get("tax_withheld_eur", 0),
                 "tax_withheld_eur",
             )
+            
+            # Parse original_amount if present (may come as string from LLM)
+            original_amount = None
+            if "original_amount" in data and data["original_amount"] is not None:
+                original_amount = DataValidator.validate_amount(
+                    data["original_amount"],
+                    "original_amount",
+                    allow_negative=True,  # Allow negative for refunds/adjustments
+                )
 
             return Box1Income(
                 source_doc_id=source_doc_id,
@@ -142,7 +156,7 @@ class DataValidator:
                 tax_withheld_eur=tax_withheld,
                 period_start=data["period_start"],
                 period_end=data["period_end"],
-                original_amount=data.get("original_amount"),
+                original_amount=original_amount,
                 original_currency=data.get("original_currency", "EUR"),
                 extraction_confidence=DataValidator.validate_confidence(
                     data.get("extraction_confidence", 1.0)
@@ -156,13 +170,19 @@ class DataValidator:
             raise ValidationError(f"Failed to validate Box1Income: {e}") from e
 
     @staticmethod
-    def validate_box3_asset(data: dict, source_doc_id: str, source_filename: str) -> Box3Asset:
+    def validate_box3_asset(
+        data: dict, 
+        source_doc_id: str, 
+        source_filename: str,
+        tax_year: int = 2024
+    ) -> Box3Asset:
         """Validate and construct a Box3Asset object.
         
         Args:
             data: Dictionary of extracted data
             source_doc_id: Document ID for audit trail
             source_filename: Filename for audit trail
+            tax_year: Tax year for reference date defaults
             
         Returns:
             Validated Box3Asset object
@@ -171,11 +191,27 @@ class DataValidator:
             ValidationError: If validation fails
         """
         try:
-            # Validate required fields
-            value_eur = DataValidator.validate_amount(
-                data.get("value_eur_jan1", 0),
-                "value_eur_jan1",
-            )
+            # Validate Jan 1 value (can be None if document only has Dec 31)
+            value_eur_jan1 = None
+            if data.get("value_eur_jan1") is not None:
+                value_eur_jan1 = DataValidator.validate_amount(
+                    data["value_eur_jan1"],
+                    "value_eur_jan1",
+                )
+            
+            # Validate Dec 31 value (can be None if document only has Jan 1)
+            value_eur_dec31 = None
+            if data.get("value_eur_dec31") is not None:
+                value_eur_dec31 = DataValidator.validate_amount(
+                    data["value_eur_dec31"],
+                    "value_eur_dec31",
+                )
+            
+            # At least one value must be present
+            if value_eur_jan1 is None and value_eur_dec31 is None:
+                raise ValidationError(
+                    "Box3Asset must have at least one of value_eur_jan1 or value_eur_dec31"
+                )
 
             # Optional gain/loss fields
             realized_gains = None
@@ -193,20 +229,40 @@ class DataValidator:
                     "realized_losses_eur",
                     allow_negative=True,
                 )
+            
+            # Parse original_value if present (may come as string from LLM)
+            original_value = None
+            if "original_value" in data and data["original_value"] is not None:
+                original_value = DataValidator.validate_amount(
+                    data["original_value"],
+                    "original_value",
+                    allow_negative=True,  # Allow negative for losses
+                )
+            
+            # Handle reference_date - default to Jan 1 of tax year if not provided
+            reference_date = data.get("reference_date")
+            if reference_date is None:
+                from datetime import date
+                reference_date = date(tax_year, 1, 1)
+            elif isinstance(reference_date, str):
+                from datetime import datetime
+                reference_date = datetime.fromisoformat(reference_date).date()
 
             return Box3Asset(
                 source_doc_id=source_doc_id,
                 source_filename=source_filename,
                 source_page=data.get("source_page"),
                 asset_type=data.get("asset_type", "savings"),
-                value_eur_jan1=value_eur,
+                value_eur_jan1=value_eur_jan1 or 0.0,  # Box3Asset requires non-null, use 0.0 if None
+                value_eur_dec31=value_eur_dec31,
                 realized_gains_eur=realized_gains,
                 realized_losses_eur=realized_losses,
-                original_value=data.get("original_value"),
+                original_value=original_value,
                 original_currency=data.get("original_currency", "EUR"),
                 conversion_rate=data.get("conversion_rate"),
-                reference_date=data["reference_date"],
+                reference_date=reference_date,
                 description=data.get("description"),
+                account_number=data.get("account_number"),
                 extraction_confidence=DataValidator.validate_confidence(
                     data.get("extraction_confidence", 1.0)
                 ),
@@ -217,5 +273,4 @@ class DataValidator:
             raise ValidationError(f"Missing required field: {e}") from e
         except Exception as e:
             raise ValidationError(f"Failed to validate Box3Asset: {e}") from e
-
 

@@ -1,13 +1,14 @@
 """Validator node: Validates and normalizes extracted data."""
 
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import ValidationError as PydanticValidationError
 
 from dutch_tax_agent.schemas.state import TaxGraphState
-from dutch_tax_agent.tools.currency import CurrencyConverter
-from dutch_tax_agent.tools.validators import DataValidator, ValidationError
+from dutch_tax_agent.tools.currency import CurrencyConverter, parse_currency_string
+from dutch_tax_agent.tools.date_utils import check_document_has_required_dates
+from dutch_tax_agent.tools.data_validator import DataValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -69,19 +70,55 @@ def validator_node(state: TaxGraphState) -> dict:
         validated_box1_items = []
         validated_box3_items = []
         validation_errors = []
+        validation_warnings = []
         
         # Extract the structured data
         extracted_data = extraction_result.extracted_data
         logger.debug(f"Extracted data for doc_id {doc_id}: {extracted_data}")
         
+        # Check if this is a broker statement by looking at classified_documents
+        is_broker_statement = False
+        for classified_doc in state.classified_documents:
+            if classified_doc.get("doc_id") == doc_id:
+                doc_type = classified_doc.get("classification", {}).get("doc_type", "")
+                if doc_type in ["us_broker_statement", "crypto_broker_statement"]:
+                    is_broker_statement = True
+                break
+        
+        # Fallback: check filename for broker-related keywords
+        if not is_broker_statement:
+            is_broker_statement = (
+                "broker" in source_filename.lower() or
+                "ibkr" in source_filename.lower() or
+                "schwab" in source_filename.lower() or
+                "fidelity" in source_filename.lower() or
+                "crypto" in source_filename.lower() or
+                "exchange" in source_filename.lower()
+            )
+        
         # Validate Box 1 income items
         for item_data in extracted_data.get("box1_items", []):
             try:
+                # Parse original_amount if present (may come as string from LLM)
+                original_amount = item_data.get("original_amount")
+                if original_amount is not None:
+                    if isinstance(original_amount, str):
+                        original_amount = parse_currency_string(original_amount)
+                    else:
+                        original_amount = float(original_amount)
+                    item_data["original_amount"] = original_amount
+                
                 # Convert currency if needed
                 if item_data.get("original_currency", "EUR") != "EUR":
-                    original_amount = item_data.get("original_amount", 0)
+                    # Use parsed original_amount or default to 0
+                    amount_to_convert = original_amount if original_amount is not None else item_data.get("gross_amount_eur", 0)
+                    # Ensure amount is a float
+                    if isinstance(amount_to_convert, str):
+                        amount_to_convert = parse_currency_string(amount_to_convert)
+                    else:
+                        amount_to_convert = float(amount_to_convert)
                     item_data["gross_amount_eur"] = converter.convert(
-                        original_amount,
+                        amount_to_convert,
                         item_data["original_currency"],
                         "EUR",
                         date(2024, 1, 1),  # Use Jan 1 as reference date
@@ -101,27 +138,166 @@ def validator_node(state: TaxGraphState) -> dict:
                 validation_errors.append(error_msg)
                 logger.error(error_msg)
         
+        # Check document date range and validate it has Jan 1 or Dec 31
+        doc_date_range = extracted_data.get("document_date_range", {})
+        doc_start = doc_date_range.get("start_date")
+        doc_end = doc_date_range.get("end_date")
+        
+        # Parse dates if they're strings
+        parsed_start = None
+        parsed_end = None
+        if doc_start:
+            if isinstance(doc_start, str):
+                try:
+                    parsed_start = datetime.fromisoformat(doc_start).date()
+                except (ValueError, AttributeError):
+                    pass
+            elif isinstance(doc_start, date):
+                parsed_start = doc_start
+        if doc_end:
+            if isinstance(doc_end, str):
+                try:
+                    parsed_end = datetime.fromisoformat(doc_end).date()
+                except (ValueError, AttributeError):
+                    pass
+            elif isinstance(doc_end, date):
+                parsed_end = doc_end
+        
+        doc_range_tuple = (parsed_start, parsed_end) if parsed_start or parsed_end else None
+        
+        # Check if document has required dates
+        has_jan1, has_dec31, date_warning = check_document_has_required_dates(
+            doc_range_tuple, state.tax_year
+        )
+        
+        # Check if any box3 items have jan1 or dec31 values
+        # Only perform this check if there are actually box3_items in the document
+        box3_items = extracted_data.get("box3_items", [])
+        if box3_items:
+            has_jan1_value = False
+            has_dec31_value = False
+            for asset_data in box3_items:
+                if asset_data.get("value_eur_jan1") is not None:
+                    has_jan1_value = True
+                if asset_data.get("value_eur_dec31") is not None:
+                    has_dec31_value = True
+            
+            # If document has box3 items but doesn't have either Jan 1 or Dec 31 values, quarantine it
+            if not has_jan1_value and not has_dec31_value:
+                quarantine_reason = (
+                    f"Document {source_filename} does not contain values for "
+                    f"January 1st or December 31st of tax year {state.tax_year}. "
+                    f"Document date range: {doc_start} to {doc_end}"
+                )
+                validation_errors.append(quarantine_reason)
+                logger.warning(quarantine_reason)
+            elif date_warning:
+                validation_warnings.append(f"Date warning for {source_filename}: {date_warning}")
+            
+            # For broker statements: Check if both cash and investment accounts are present
+            # Broker statements should always have both (even if one is 0)
+            # If box3_items is empty, it means the parser couldn't extract either account
+            # Check if this looks like a broker statement by checking if we have any items
+            # and if they have descriptions that suggest broker accounts
+            # Also check if we have both savings and investment types
+            has_cash = any(item.get("asset_type") == "savings" for item in box3_items)
+            has_investment = any(
+                item.get("asset_type") in ["stocks", "bonds", "crypto", "other"]
+                for item in box3_items
+            )
+            
+            # If this is a broker statement but we don't have both accounts, quarantine
+            # Note: Post-processing in the parser should have added missing accounts with 0,
+            # so if both are still missing, it means the parser couldn't extract either account
+            if is_broker_statement and not (has_cash and has_investment):
+                quarantine_reason = (
+                    f"Broker statement {source_filename} is missing both cash and investment account values. "
+                    f"At least one account type must be extractable. Found: cash={'yes' if has_cash else 'no'}, "
+                    f"investment={'yes' if has_investment else 'no'}"
+                )
+                validation_errors.append(quarantine_reason)
+                logger.warning(quarantine_reason)
+        elif date_warning:
+            # Only log date warnings if there are no box3 items (for box1-only documents)
+            validation_warnings.append(f"Date warning for {source_filename}: {date_warning}")
+        
+        # Additional check: If box3_items is empty, check if this is a broker statement
+        # If it is, quarantine it (broker statements should always have at least one account)
+        if not box3_items and is_broker_statement:
+            quarantine_reason = (
+                f"Broker statement {source_filename} could not extract either cash or investment account values. "
+                f"At least one account type must be extractable to process this document."
+            )
+            validation_errors.append(quarantine_reason)
+            logger.warning(quarantine_reason)
+        
         # Validate Box 3 asset items
         for asset_data in extracted_data.get("box3_items", []):
             try:
-                # Convert currency if needed
-                if asset_data.get("original_currency", "EUR") != "EUR":
-                    original_value = asset_data.get("original_value", 0)
+                # Convert currency if needed for Jan 1 value
+                jan1_value = asset_data.get("value_eur_jan1")
+                dec31_value = asset_data.get("value_eur_dec31")
+                
+                # Ensure values are floats (may come as strings from JSON)
+                if jan1_value is not None:
+                    if isinstance(jan1_value, str):
+                        jan1_value = parse_currency_string(jan1_value)
+                    else:
+                        jan1_value = float(jan1_value)
+                
+                if dec31_value is not None:
+                    if isinstance(dec31_value, str):
+                        dec31_value = parse_currency_string(dec31_value)
+                    else:
+                        dec31_value = float(dec31_value)
+                
+                # Convert currency if needed for Jan 1 value
+                if jan1_value is not None and asset_data.get("original_currency", "EUR") != "EUR":
+                    # Use Jan 1 as reference date for conversion
                     conversion_rate = converter.get_rate(
                         asset_data["original_currency"],
                         "EUR",
-                        date(2024, 1, 1),
+                        date(state.tax_year, 1, 1),
                     )
-                    asset_data["value_eur_jan1"] = original_value * conversion_rate
+                    asset_data["value_eur_jan1"] = jan1_value * conversion_rate
                     asset_data["conversion_rate"] = conversion_rate
+                elif jan1_value is not None:
+                    # Already in EUR, just ensure it's stored as float
+                    asset_data["value_eur_jan1"] = jan1_value
+                
+                # Convert currency if needed for Dec 31 value
+                if dec31_value is not None and asset_data.get("original_currency", "EUR") != "EUR":
+                    # Use Dec 31 as reference date for conversion
+                    conversion_rate_dec31 = converter.get_rate(
+                        asset_data["original_currency"],
+                        "EUR",
+                        date(state.tax_year, 12, 31),
+                    )
+                    asset_data["value_eur_dec31"] = dec31_value * conversion_rate_dec31
+                    # Store conversion rate (use the one for Jan 1 if both exist, or Dec 31)
+                    if jan1_value is None:
+                        asset_data["conversion_rate"] = conversion_rate_dec31
+                elif dec31_value is not None:
+                    # Already in EUR, just ensure it's stored as float
+                    asset_data["value_eur_dec31"] = dec31_value
+                
+                # Parse original_value if present (may come as string from LLM)
+                original_value = asset_data.get("original_value")
+                if original_value is not None:
+                    if isinstance(original_value, str):
+                        original_value = parse_currency_string(original_value)
+                    else:
+                        original_value = float(original_value)
+                    asset_data["original_value"] = original_value
                 
                 # Validate and construct Box3Asset
                 box3_asset = validator.validate_box3_asset(
-                    asset_data, doc_id, source_filename
+                    asset_data, doc_id, source_filename, state.tax_year
                 )
                 validated_box3_items.append(box3_asset)
                 logger.debug(
-                    f"Validated Box3 asset: €{box3_asset.value_eur_jan1:,.2f}"
+                    f"Validated Box3 asset: Jan1=€{box3_asset.value_eur_jan1 or 0:,.2f}, "
+                    f"Dec31=€{box3_asset.value_eur_dec31 or 0:,.2f}"
                 )
                 
             except (ValidationError, PydanticValidationError) as e:
@@ -141,6 +317,7 @@ def validator_node(state: TaxGraphState) -> dict:
             "validated_box1_items": [item.model_dump() for item in validated_box1_items],
             "validated_box3_items": [asset.model_dump() for asset in validated_box3_items],
             "validation_errors": validation_errors,
+            "validation_warnings": validation_warnings,
         }
         validated_results.append(result)
     

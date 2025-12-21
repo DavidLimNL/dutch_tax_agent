@@ -122,6 +122,12 @@ class Box3Asset(BaseModel):
         description="Human-readable description (e.g., 'ING Savings Account')",
     )
     
+    # Account identifier
+    account_number: Optional[str] = Field(
+        None,
+        description="Account number or identifier (e.g., '872', 'NL91ABNA0417164300') - used for matching accounts across documents",
+    )
+    
     # Metadata
     extraction_confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     original_text_snippet: Optional[str] = Field(

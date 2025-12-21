@@ -48,8 +48,9 @@ def reducer_node(state: TaxGraphState) -> Command:
     )
 
     # Validate data completeness
-    validation_errors = []
-    validation_warnings = []
+    # Start with existing validation errors/warnings from validator
+    validation_errors = list(state.validation_errors)
+    validation_warnings = list(state.validation_warnings)
 
     # Check for critical missing data
     if not state.box1_income_items and not state.box3_asset_items:

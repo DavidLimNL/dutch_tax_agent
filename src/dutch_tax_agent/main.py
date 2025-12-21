@@ -275,8 +275,11 @@ def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_part
         console.print(f"[red]Error: Directory not found: {input_dir}[/red]")
         sys.exit(1)
 
-    # Find all PDFs
-    pdf_files = list(input_dir.glob("*.pdf"))
+    # Find all PDFs (case-insensitive: .pdf, .PDF, .Pdf, etc.)
+    pdf_files = [
+        f for f in input_dir.iterdir()
+        if f.is_file() and f.suffix.lower() == ".pdf"
+    ]
 
     if not pdf_files:
         console.print(f"[red]Error: No PDF files found in {input_dir}[/red]")

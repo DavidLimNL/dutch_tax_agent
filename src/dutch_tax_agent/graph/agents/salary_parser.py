@@ -2,6 +2,8 @@
 
 import json
 import logging
+import re
+from datetime import date
 
 from langchain_core.messages import HumanMessage
 from langsmith import traceable
@@ -34,6 +36,10 @@ def salary_parser_agent(input_data: dict) -> dict:
 
     llm = create_llm(temperature=0)
 
+    # Get tax year from classification if available
+    classification = input_data.get("classification", {})
+    tax_year = classification.get("tax_year")
+    
     prompt = f"""You are a specialized salary statement parser for Dutch tax purposes.
 
 Extract Box 1 income data (employment income).
@@ -42,14 +48,20 @@ IMPORTANT:
 1. Find gross salary/income amounts
 2. Find tax withheld (loonheffing/inhouding)
 3. Identify the period (month/quarter/year)
-4. All amounts should be in EUR
-5. Return ONLY valid JSON
+4. Determine the document date range (start_date and end_date) that this document covers
+5. For year-end statements (Jaaropgaaf), the document typically covers the full tax year (e.g., 2024-01-01 to 2024-12-31)
+6. All amounts should be in EUR
+7. Return ONLY valid JSON
 
 Document:
 {doc_text}
 
 Return JSON in this EXACT format:
 {{
+  "document_date_range": {{
+    "start_date": "YYYY-MM-DD" or null,
+    "end_date": "YYYY-MM-DD" or null
+  }},
   "box1_items": [
     {{
       "income_type": "salary" or "bonus" or "freelance",
@@ -63,7 +75,10 @@ Return JSON in this EXACT format:
   ]
 }}
 
-If no income data found, return: {{"box1_items": []}}
+For year-end statements (Jaaropgaaf), set document_date_range to cover the full tax year.
+For monthly/quarterly statements, set document_date_range to the period covered by the statement.
+
+If no income data found, return: {{"box1_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
 
     try:
@@ -78,6 +93,76 @@ If no income data found, return: {{"box1_items": []}}
 
         extracted_data = json.loads(response_text)
 
+        # Ensure document_date_range exists
+        if "document_date_range" not in extracted_data:
+            extracted_data["document_date_range"] = {"start_date": None, "end_date": None}
+        
+        # If document_date_range is missing or incomplete, try to infer it
+        doc_date_range = extracted_data.get("document_date_range", {})
+        doc_start = doc_date_range.get("start_date")
+        doc_end = doc_date_range.get("end_date")
+        
+        # If date range is missing, try to infer from box1_items or filename
+        if not doc_start or not doc_end:
+            # Check if this is a year-end statement (Jaaropgaaf)
+            is_jaaropgaaf = "jaaropgaaf" in filename.lower() or "jaar" in filename.lower()
+            
+            # Try to extract tax year from filename if not in classification
+            inferred_tax_year = tax_year
+            if not inferred_tax_year:
+                # Look for 4-digit year in filename (e.g., "2024-Jaaropgaaf-750241-2024-12.pdf")
+                year_matches = re.findall(r'\b(20\d{2})\b', filename)
+                if year_matches:
+                    try:
+                        inferred_tax_year = int(year_matches[0])
+                        # Validate reasonable year range
+                        if 2000 <= inferred_tax_year <= 2100:
+                            logger.info(f"Inferred tax year {inferred_tax_year} from filename {filename}")
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Try to infer from box1_items periods
+            box1_items = extracted_data.get("box1_items", [])
+            if box1_items:
+                # Find the earliest period_start and latest period_end
+                period_starts = []
+                period_ends = []
+                for item in box1_items:
+                    if item.get("period_start"):
+                        try:
+                            period_starts.append(date.fromisoformat(item["period_start"]))
+                        except (ValueError, TypeError):
+                            pass
+                    if item.get("period_end"):
+                        try:
+                            period_ends.append(date.fromisoformat(item["period_end"]))
+                        except (ValueError, TypeError):
+                            pass
+                
+                if period_starts and period_ends:
+                    inferred_start = min(period_starts)
+                    inferred_end = max(period_ends)
+                    
+                    # If this is a year-end statement and we have a tax year, use full year
+                    if is_jaaropgaaf and inferred_tax_year:
+                        inferred_start = date(inferred_tax_year, 1, 1)
+                        inferred_end = date(inferred_tax_year, 12, 31)
+                    
+                    if not doc_start:
+                        doc_start = inferred_start.isoformat()
+                    if not doc_end:
+                        doc_end = inferred_end.isoformat()
+                elif is_jaaropgaaf and inferred_tax_year:
+                    # For year-end statements, use full tax year
+                    doc_start = date(inferred_tax_year, 1, 1).isoformat()
+                    doc_end = date(inferred_tax_year, 12, 31).isoformat()
+            
+            # Update document_date_range
+            extracted_data["document_date_range"] = {
+                "start_date": doc_start,
+                "end_date": doc_end
+            }
+
         # Validate and set defaults
         for item in extracted_data.get("box1_items", []):
             if "original_currency" not in item:
@@ -89,7 +174,9 @@ If no income data found, return: {{"box1_items": []}}
                 item["tax_withheld_eur"] = 0.0
 
         logger.info(
-            f"Salary parser extracted {len(extracted_data.get('box1_items', []))} items"
+            f"Salary parser extracted {len(extracted_data.get('box1_items', []))} items, "
+            f"date range: {extracted_data.get('document_date_range', {}).get('start_date')} to "
+            f"{extracted_data.get('document_date_range', {}).get('end_date')}"
         )
 
         # Return state update that will be merged into TaxGraphState.extraction_results

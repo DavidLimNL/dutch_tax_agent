@@ -39,46 +39,77 @@ def us_broker_parser_agent(input_data: dict) -> dict:
 
 Extract Box 3 wealth data from brokerage statements (US brokers, crypto exchanges, etc.).
 
-CRITICAL: Brokerages typically have TWO separate account types:
-1. CASH/Savings account (cash balance, fiat currency, money market funds, uninvested cash)
-2. INVESTMENT account (stocks, bonds, ETFs, mutual funds, crypto assets, options)
+CRITICAL: Brokerages ALWAYS have TWO separate account types:
+1. CASH/Savings account (cash balance, fiat currency, money market funds, uninvested cash) - use asset_type="savings"
+2. INVESTMENT account (stocks, bonds, ETFs, mutual funds, crypto assets, options) - use asset_type="stocks" (or "crypto" for crypto holdings)
 
 These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different fictional yield rates for savings vs investments.
 
+MANDATORY EXTRACTION RULE:
+- You MUST ALWAYS extract BOTH a cash account AND an investment account
+- If you can find one but not the other, set the missing one to 0 (zero)
+- For example: If the document shows $10,000 cash but no investment holdings, extract:
+  * One item with asset_type="savings" with the cash value
+  * One item with asset_type="stocks" with value_eur_jan1=0 (or value_eur_dec31=0 if it's a Dec statement)
+- This covers cases where shares were sold during the year, so Dec statements only show cash
+- If you cannot find BOTH accounts (neither cash nor investment values), return empty box3_items array
+
 IMPORTANT:
-1. Find the portfolio value on or near January 1st
-2. Extract CASH/FIAT balance separately from INVESTMENT portfolio value (stocks, crypto, etc.)
-3. Find realized gains/losses for the tax year (typically only for investments)
-4. Amounts may be in USD, EUR, or other currencies (preserve original currency)
-5. Look for: stocks, bonds, ETFs, mutual funds, crypto assets
-6. For crypto exchanges: extract fiat (EUR/USD) separately from crypto holdings
-7. Return ONLY valid JSON
+1. Determine the date range covered by this document (e.g., "1-Jan-2024 to 31-Jan-2024" or "31-Dec-2024")
+2. Find the portfolio value on or near January 1st (the reference date for Box 3)
+3. Find the portfolio value on or near December 31st (end of tax year, needed for actual return calculation)
+4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
+5. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
+6. Extract CASH/FIAT balance separately from INVESTMENT portfolio value (stocks, crypto, etc.)
+7. Find realized gains/losses for the tax year (typically only for investments)
+8. Amounts may be in USD, EUR, or other currencies (preserve original currency)
+9. Look for: stocks, bonds, ETFs, mutual funds, crypto assets
+10. For crypto exchanges: extract fiat (EUR/USD) separately from crypto holdings
+11. Extract account number/identifier if available (e.g., account number, account ID, statement number) - this is critical for matching accounts across different statements
+12. Return ONLY valid JSON
 
 Document:
 {doc_text}
 
 Return JSON in this EXACT format:
 {{
+  "document_date_range": {{
+    "start_date": "YYYY-MM-DD" or null,
+    "end_date": "YYYY-MM-DD" or null
+  }},
   "box3_items": [
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
-      "value_eur_jan1": <value in original currency (will be converted later)>,
-      "original_value": <same as value_eur_jan1>,
+      "value_eur_jan1": <value in original currency (will be converted later) or null if not available>,
+      "value_eur_dec31": <value in original currency (will be converted later) or null if not available>,
+      "original_value": <same as value_eur_jan1 if available, otherwise value_eur_dec31>,
       "original_currency": "USD" or "EUR" or other currency code,
       "realized_gains_eur": <number or null, typically only for investments>,
       "realized_losses_eur": <number or null, typically only for investments>,
-      "reference_date": "YYYY-MM-DD",
+      "reference_date": "YYYY-MM-DD" (the date of the value_eur_jan1, or closest to Jan 1),
+      "dec31_reference_date": "YYYY-MM-DD" or null (the date of the value_eur_dec31, or closest to Dec 31),
       "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
+      "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
       "extraction_confidence": <0.0 to 1.0>
     }}
   ]
 }}
 
-Examples:
-- US Broker: $10,000 cash and $50,000 in stocks → TWO items (savings=$10k, stocks=$50k)
-- Crypto Exchange: €5,000 EUR balance and 2.5 BTC worth €100,000 → TWO items (savings=€5k, crypto=€100k)
+IMPORTANT:
+- If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
+- If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
+- If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
+- If document only has one of these dates, that's fine - set the other to null
+- If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range
+- For original_value, use value_eur_jan1 if available, otherwise use value_eur_dec31
 
-If no data found, return: {{"box3_items": []}}
+Examples:
+- US Broker on 1-Jan-2024: $10,000 cash and $50,000 in stocks → TWO items (savings=$10k, stocks=$50k, both with value_eur_jan1 set)
+- Crypto Exchange on 31-Dec-2024: €5,000 EUR balance and 2.5 BTC worth €100,000 → TWO items (savings=€5k, crypto=€100k, both with value_eur_dec31 set)
+- US Broker on 31-Dec-2024: $15,000 cash but NO investment holdings (shares were sold) → TWO items (savings=$15k with value_eur_dec31, stocks=$0 with value_eur_dec31=0)
+- US Broker on 1-Jan-2024: $0 cash but $30,000 in stocks → TWO items (savings=$0 with value_eur_jan1=0, stocks=$30k with value_eur_jan1)
+
+If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
 
     try:
@@ -93,19 +124,133 @@ If no data found, return: {{"box3_items": []}}
 
         extracted_data = json.loads(response_text)
 
+        # Ensure document_date_range exists
+        if "document_date_range" not in extracted_data:
+            extracted_data["document_date_range"] = {"start_date": None, "end_date": None}
+
         # Ensure currency is set (default to USD for US brokers, but preserve EUR for crypto exchanges)
-        for item in extracted_data.get("box3_items", []):
+        box3_items = extracted_data.get("box3_items", [])
+        for item in box3_items:
             if "original_currency" not in item:
                 # Default to USD for US brokers, but validator will handle currency conversion
                 item["original_currency"] = "USD"
             if "reference_date" not in item:
-                item["reference_date"] = date(2024, 1, 1).isoformat()
+                # Try to infer from document_date_range or default to Jan 1
+                doc_start = extracted_data.get("document_date_range", {}).get("start_date")
+                if doc_start:
+                    item["reference_date"] = doc_start
+                else:
+                    item["reference_date"] = date(2024, 1, 1).isoformat()
+            if "dec31_reference_date" not in item:
+                item["dec31_reference_date"] = None
+            if "value_eur_jan1" not in item:
+                item["value_eur_jan1"] = None
+            if "value_eur_dec31" not in item:
+                item["value_eur_dec31"] = None
+            # Set original_value if not set (use jan1 if available, otherwise dec31)
+            if "original_value" not in item:
+                if item.get("value_eur_jan1") is not None:
+                    item["original_value"] = item["value_eur_jan1"]
+                elif item.get("value_eur_dec31") is not None:
+                    item["original_value"] = item["value_eur_dec31"]
+                else:
+                    item["original_value"] = None
             if "extraction_confidence" not in item:
                 # Default to 0.8 to match classification confidence default
                 item["extraction_confidence"] = 0.8
+            if "account_number" not in item:
+                item["account_number"] = None
+
+        # Post-processing: Ensure both cash (savings) and investment (stocks/crypto) accounts are present
+        # If one is missing, add it with 0 value
+        has_cash = any(item.get("asset_type") == "savings" for item in box3_items)
+        has_investment = any(
+            item.get("asset_type") in ["stocks", "bonds", "crypto", "other"]
+            for item in box3_items
+        )
+        
+        # Determine reference dates and account_number from existing items
+        reference_date = None
+        dec31_reference_date = None
+        original_currency = "USD"
+        account_number = None
+        for item in box3_items:
+            if item.get("reference_date"):
+                reference_date = item["reference_date"]
+            if item.get("dec31_reference_date"):
+                dec31_reference_date = item["dec31_reference_date"]
+            if item.get("original_currency"):
+                original_currency = item["original_currency"]
+            if item.get("account_number") and not account_number:
+                account_number = item["account_number"]
+        
+        # Default reference dates if not found
+        if not reference_date:
+            doc_start = extracted_data.get("document_date_range", {}).get("start_date")
+            if doc_start:
+                reference_date = doc_start
+            else:
+                reference_date = date(2024, 1, 1).isoformat()
+        
+        # Add missing cash account with 0 value
+        if not has_cash and has_investment:
+            # Determine which date to use (prefer dec31 if available, otherwise jan1)
+            value_jan1 = None
+            value_dec31 = None
+            if dec31_reference_date:
+                value_dec31 = 0.0
+            else:
+                value_jan1 = 0.0
+            
+            cash_item = {
+                "asset_type": "savings",
+                "value_eur_jan1": value_jan1,
+                "value_eur_dec31": value_dec31,
+                "original_value": value_jan1 if value_jan1 is not None else value_dec31,
+                "original_currency": original_currency,
+                "realized_gains_eur": None,
+                "realized_losses_eur": None,
+                "reference_date": reference_date,
+                "dec31_reference_date": dec31_reference_date,
+                "description": f"{filename} Cash Account (defaulted to 0)",
+                "account_number": account_number,  # Use account_number from other items if available
+                "extraction_confidence": 0.5,  # Lower confidence since it's inferred
+            }
+            box3_items.append(cash_item)
+            logger.info(f"Added missing cash account with 0 value for {filename}")
+        
+        # Add missing investment account with 0 value
+        if not has_investment and has_cash:
+            # Determine which date to use (prefer dec31 if available, otherwise jan1)
+            value_jan1 = None
+            value_dec31 = None
+            if dec31_reference_date:
+                value_dec31 = 0.0
+            else:
+                value_jan1 = 0.0
+            
+            investment_item = {
+                "asset_type": "stocks",  # Default to stocks for investment account
+                "value_eur_jan1": value_jan1,
+                "value_eur_dec31": value_dec31,
+                "original_value": value_jan1 if value_jan1 is not None else value_dec31,
+                "original_currency": original_currency,
+                "realized_gains_eur": None,
+                "realized_losses_eur": None,
+                "reference_date": reference_date,
+                "dec31_reference_date": dec31_reference_date,
+                "description": f"{filename} Investment Account (defaulted to 0)",
+                "account_number": account_number,  # Use account_number from other items if available
+                "extraction_confidence": 0.5,  # Lower confidence since it's inferred
+            }
+            box3_items.append(investment_item)
+            logger.info(f"Added missing investment account with 0 value for {filename}")
+        
+        # Update extracted_data with potentially modified box3_items
+        extracted_data["box3_items"] = box3_items
 
         logger.info(
-            f"US broker parser extracted {len(extracted_data.get('box3_items', []))} items"
+            f"US broker parser extracted {len(box3_items)} items (cash={'yes' if has_cash else 'no'}, investment={'yes' if has_investment else 'no'})"
         )
 
         # Return state update that will be merged into TaxGraphState.extraction_results

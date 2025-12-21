@@ -49,36 +49,58 @@ CRITICAL: Dutch banks often have multiple account types:
 These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different fictional yield rates for savings vs investments.
 
 IMPORTANT INSTRUCTIONS:
-1. Look for account balances on or near January 1st (the reference date for Box 3)
-2. Identify the account type: savings, investment (stocks/bonds), crypto, or other
-3. Extract each account type separately (e.g., if there's both a savings and investment account, create two items)
-4. Look for realized gains, dividends, or interest income during the year
-5. All amounts should be in EUR
-6. Return ONLY valid JSON, no additional text
+1. Determine the date range covered by this document (e.g., "1-Jan-2024 to 31-Jan-2024" or "31-Dec-2024")
+2. Look for account balances on or near January 1st (the reference date for Box 3)
+3. Look for account balances on or near December 31st (end of tax year, needed for actual return calculation)
+4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
+5. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
+6. Identify the account type: savings, investment (stocks/bonds), crypto, or other
+7. Extract each account type separately (e.g., if there's both a savings and investment account, create two items)
+8. Look for realized gains, dividends, or interest income during the year
+9. Extract account number or IBAN if available - this is critical for matching accounts across different statements
+10. All amounts should be in EUR
+11. Return ONLY valid JSON, no additional text
 
 Document:
 {doc_text}
 
 Return JSON in this EXACT format:
 {{
+  "document_date_range": {{
+    "start_date": "YYYY-MM-DD" or null,
+    "end_date": "YYYY-MM-DD" or null
+  }},
   "box3_items": [
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
-      "value_eur_jan1": <number>,
+      "value_eur_jan1": <number or null if not available>,
+      "value_eur_dec31": <number or null if not available>,
       "realized_gains_eur": <number or null>,
-      "reference_date": "YYYY-MM-DD",
+      "reference_date": "YYYY-MM-DD" (the date of the value_eur_jan1, or closest to Jan 1),
+      "dec31_reference_date": "YYYY-MM-DD" or null (the date of the value_eur_dec31, or closest to Dec 31),
       "description": "Account name or description (e.g., 'ING Spaarrekening' or 'ABN AMRO Beleggingsrekening')",
+      "account_number": "Account number or IBAN if available (e.g., 'NL91ABNA0417164300', '123456789') or null",
       "original_currency": "EUR",
       "extraction_confidence": <0.0 to 1.0>
     }}
   ]
 }}
 
-Example: If a statement shows €20,000 in savings and €30,000 in investments, return TWO items:
-- One with asset_type="savings", value_eur_jan1=20000
-- One with asset_type="stocks", value_eur_jan1=30000
+IMPORTANT:
+- If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
+- If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
+- If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
+- If document only has one of these dates, that's fine - set the other to null
+- If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range
 
-If no Box 3 data is found, return: {{"box3_items": []}}
+Example: If a statement shows €20,000 in savings on 1-Jan-2024 and €30,000 in investments on 1-Jan-2024, return TWO items:
+- One with asset_type="savings", value_eur_jan1=20000, value_eur_dec31=null
+- One with asset_type="stocks", value_eur_jan1=30000, value_eur_dec31=null
+
+Example: If a statement shows €25,000 in savings on 31-Dec-2024, return:
+- One with asset_type="savings", value_eur_jan1=null, value_eur_dec31=25000
+
+If no Box 3 data is found, return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
 
     try:
@@ -94,15 +116,32 @@ If no Box 3 data is found, return: {{"box3_items": []}}
         # Parse JSON
         extracted_data = json.loads(response_text)
 
+        # Ensure document_date_range exists
+        if "document_date_range" not in extracted_data:
+            extracted_data["document_date_range"] = {"start_date": None, "end_date": None}
+        
         # Add reference date and other missing fields if not present
         for item in extracted_data.get("box3_items", []):
             if "reference_date" not in item:
-                item["reference_date"] = date(2024, 1, 1).isoformat()
+                # Try to infer from document_date_range or default to Jan 1
+                doc_start = extracted_data.get("document_date_range", {}).get("start_date")
+                if doc_start:
+                    item["reference_date"] = doc_start
+                else:
+                    item["reference_date"] = date(2024, 1, 1).isoformat()
+            if "dec31_reference_date" not in item:
+                item["dec31_reference_date"] = None
+            if "value_eur_jan1" not in item:
+                item["value_eur_jan1"] = None
+            if "value_eur_dec31" not in item:
+                item["value_eur_dec31"] = None
             if "original_currency" not in item:
                 item["original_currency"] = "EUR"
             if "extraction_confidence" not in item:
                 # Default to 0.8 to match classification confidence default
                 item["extraction_confidence"] = 0.8
+            if "account_number" not in item:
+                item["account_number"] = None
 
         logger.info(
             f"Dutch parser extracted {len(extracted_data.get('box3_items', []))} items from {filename}"
