@@ -27,6 +27,9 @@ logging.basicConfig(
 # Suppress verbose Presidio logging
 logging.getLogger("presidio_analyzer").setLevel(logging.WARNING)
 logging.getLogger("presidio_anonymizer").setLevel(logging.WARNING)
+# Suppress specific Presidio internal loggers that generate INFO/WARNING messages
+logging.getLogger("presidio_analyzer.entity_recognizer").setLevel(logging.ERROR)
+logging.getLogger("presidio_analyzer.recognizers_loader_utils").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 console = Console()
