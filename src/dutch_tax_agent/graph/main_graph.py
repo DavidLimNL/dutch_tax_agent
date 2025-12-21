@@ -125,7 +125,8 @@ def create_tax_graph() -> StateGraph:
     graph.add_node("statutory_calculation", statutory_calculation_node)
     graph.add_node("optimization", optimization_node)
     graph.add_node("actual_return", actual_return_node)
-    graph.add_node("comparison", comparison_node)
+    # Use defer=True to ensure comparison only runs once after both branches complete
+    graph.add_node("comparison", comparison_node, defer=True)
 
     # Define edges
     graph.add_edge(START, "dispatcher")
@@ -155,6 +156,7 @@ def create_tax_graph() -> StateGraph:
     graph.add_edge("start_box3", "actual_return")
     
     # Join: Both branches feed into comparison
+    # The defer=True parameter ensures comparison only runs once after both branches complete
     graph.add_edge("optimization", "comparison")
     graph.add_edge("actual_return", "comparison")
     
