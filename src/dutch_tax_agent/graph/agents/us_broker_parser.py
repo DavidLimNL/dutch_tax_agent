@@ -45,6 +45,15 @@ CRITICAL: Brokerages ALWAYS have TWO separate account types:
 
 These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different fictional yield rates for savings vs investments.
 
+⚠️ CRITICAL EXTRACTION WARNING ⚠️:
+You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
+DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
+The document may show a "Total Account Value" or "Account Balance" that combines both - IGNORE this total.
+Instead, find and extract:
+- The individual CASH/Savings balance (separate line item or section)
+- The individual INVESTMENT portfolio value (stocks/crypto/etc. - separate line item or section)
+These are two distinct values that must be extracted separately, NOT as a combined total.
+
 MANDATORY EXTRACTION RULE:
 - You MUST ALWAYS extract BOTH a cash account AND an investment account
 - If you can find one but not the other, set the missing one to 0 (zero)
@@ -60,7 +69,7 @@ IMPORTANT:
 3. Find the portfolio value on or near December 31st (end of tax year, needed for actual return calculation)
 4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
 5. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
-6. Extract CASH/FIAT balance separately from INVESTMENT portfolio value (stocks, crypto, etc.)
+6. Extract CASH/FIAT balance separately from INVESTMENT portfolio value (stocks, crypto, etc.) - these are INDIVIDUAL values, NOT the total account value. Look for separate line items showing cash balance vs. investment holdings value.
 7. Find realized gains/losses for the tax year (typically only for investments)
 8. Amounts may be in USD, EUR, or other currencies (preserve original currency)
 9. Look for: stocks, bonds, ETFs, mutual funds, crypto assets
