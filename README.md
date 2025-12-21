@@ -26,11 +26,11 @@ graph TD
     end
 
     subgraph "Phase 2: The Graph (LangGraph Map-Reduce)"
-        SafeData --> Dispatcher{Dispatcher Node}
+        SafeData --> Dispatcher(Dispatcher Node LLM)
         
-        Dispatcher -->|Send Doc A| DutchAgent[Dutch Parser Agent]
-        Dispatcher -->|Send Doc B| USAgent[US Broker Agent]
-        Dispatcher -->|Send Doc C| SalaryAgent[Income Agent]
+        Dispatcher -->|Send Doc A| DutchAgent(Dutch Parser Agent LLM)
+        Dispatcher -->|Send Doc B| USAgent(US Broker Agent LLM)
+        Dispatcher -->|Send Doc C| SalaryAgent(Income Agent LLM)
         
         DutchAgent --> ValidatorA[Validator & Currency Tool]
         USAgent --> ValidatorB[Validator & Currency Tool]
@@ -53,10 +53,16 @@ graph TD
         StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy<br/>+ Fiscal Partner Optimization]
         StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method<br/>+ Fiscal Partner Optimization]
         
-        Statutory --> Compare[Comparison Node]
+        Statutory --> Compare(Comparison Node LLM)
         Actual --> Compare
         Compare --> End2[END - Final State]
     end
+
+    style Dispatcher fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style DutchAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style USAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style SalaryAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style Compare fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
 ```
 
 ## 🚀 Quick Start
