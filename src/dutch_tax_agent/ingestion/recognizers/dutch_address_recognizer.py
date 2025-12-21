@@ -28,9 +28,10 @@ class DutchAddressRecognizer(PatternRecognizer):
             # Street name + number (e.g., "G MAHLERLN 2970", "KALVERSTRAAT 123")
             # Pattern: starts with capital, has letters/spaces, ends with digits
             # Handles both single-word ("KALVERSTRAAT 123") and multi-word ("G MAHLERLN 2970") streets
+            # Using more efficient pattern to avoid catastrophic backtracking: [A-Z]+(?:\s+[A-Z]+)*
             Pattern(
                 name="dutch_street_address",
-                regex=r"\b[A-Z](?:[A-Z]+|\s+[A-Z]+)*\s+\d+\b",
+                regex=r"\b[A-Z]+(?:\s+[A-Z]+)*\s+\d+\b",
                 score=0.7,
             ),
             # Postal code + city (e.g., "1081LA AMSTERDAM", "1234 AB ROTTERDAM")
@@ -40,9 +41,10 @@ class DutchAddressRecognizer(PatternRecognizer):
                 score=0.9,
             ),
             # Full address pattern: street + postal code + city
+            # Using more efficient pattern to avoid catastrophic backtracking
             Pattern(
                 name="dutch_full_address",
-                regex=r"\b[A-Z](?:[A-Z]+|\s+[A-Z]+)*\s+\d+\s+\d{4}\s?[A-Z]{2}\s+[A-Z](?:[A-Z]+|\s+[A-Z]+)*\b",
+                regex=r"\b[A-Z]+(?:\s+[A-Z]+)*\s+\d+\s+\d{4}\s?[A-Z]{2}\s+[A-Z]+(?:\s+[A-Z]+)*\b",
                 score=0.95,
             ),
             # Reversed patterns (for when entire text is reversed)
@@ -99,6 +101,11 @@ class DutchAddressRecognizer(PatternRecognizer):
         """
         text = pattern_text.strip()
         
+        # Safety check: skip validation on extremely long strings to prevent regex hangs
+        # Valid addresses should be relatively short (max ~100 chars is reasonable)
+        if len(text) > 100:
+            return False
+        
         # Check for Dutch postal code pattern (4 digits + 2 letters)
         # This handles both standalone postal codes and postal codes followed by numbers
         # Also handles postal codes embedded in text (like "AMSTERDAM1081LA")
@@ -113,13 +120,18 @@ class DutchAddressRecognizer(PatternRecognizer):
         # Should have at least one letter and one digit
         if re.search(r"[A-Z]", text) and re.search(r"\d", text):
             # Street name should have letters, number at least 1 digit
-            # Pattern: first letter, then zero or more words (letter sequences), then space(s), then digits
-            street_match = re.match(r"([A-Z](?:[A-Z]+|\s+[A-Z]+)*)\s+(\d+)", text)
+            # Use a more efficient pattern to avoid catastrophic backtracking:
+            # Match one uppercase letter, then zero or more uppercase letters or spaces,
+            # then require whitespace followed by digits
+            # Using a non-greedy quantifier with a simpler alternation to prevent backtracking
+            street_match = re.match(r"([A-Z][A-Z\s]{0,50}?)\s+(\d+)", text)
             if street_match:
                 street_part = street_match.group(1).strip()
                 number_part = street_match.group(2)
                 # Ensure street part has at least 2 letters (for names like "G MAHLERLN" or "KALVERSTRAAT")
-                if len(re.findall(r"[A-Z]", street_part)) >= 2 and len(number_part) >= 1:
+                # Count uppercase letters more efficiently
+                uppercase_count = sum(1 for c in street_part if c.isupper())
+                if uppercase_count >= 2 and len(number_part) >= 1:
                     return True
         
         # Check for reversed street address (number at end: letters then digits, no space)
