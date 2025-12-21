@@ -254,13 +254,19 @@ def validator_node(state: TaxGraphState) -> dict:
                 # Convert currency if needed for Jan 1 value
                 if jan1_value is not None and asset_data.get("original_currency", "EUR") != "EUR":
                     # Use Jan 1 as reference date for conversion
-                    conversion_rate = converter.get_rate(
+                    converted_jan1 = converter.convert(
+                        jan1_value,
                         asset_data["original_currency"],
                         "EUR",
                         date(state.tax_year, 1, 1),
                     )
-                    asset_data["value_eur_jan1"] = jan1_value * conversion_rate
-                    asset_data["conversion_rate"] = conversion_rate
+                    asset_data["value_eur_jan1"] = converted_jan1
+                    # Store conversion rate for reference
+                    asset_data["conversion_rate"] = converter.get_rate(
+                        asset_data["original_currency"],
+                        "EUR",
+                        date(state.tax_year, 1, 1),
+                    )
                 elif jan1_value is not None:
                     # Already in EUR, just ensure it's stored as float
                     asset_data["value_eur_jan1"] = jan1_value
@@ -268,15 +274,20 @@ def validator_node(state: TaxGraphState) -> dict:
                 # Convert currency if needed for Dec 31 value
                 if dec31_value is not None and asset_data.get("original_currency", "EUR") != "EUR":
                     # Use Dec 31 as reference date for conversion
-                    conversion_rate_dec31 = converter.get_rate(
+                    converted_dec31 = converter.convert(
+                        dec31_value,
                         asset_data["original_currency"],
                         "EUR",
                         date(state.tax_year, 12, 31),
                     )
-                    asset_data["value_eur_dec31"] = dec31_value * conversion_rate_dec31
+                    asset_data["value_eur_dec31"] = converted_dec31
                     # Store conversion rate (use the one for Jan 1 if both exist, or Dec 31)
                     if jan1_value is None:
-                        asset_data["conversion_rate"] = conversion_rate_dec31
+                        asset_data["conversion_rate"] = converter.get_rate(
+                            asset_data["original_currency"],
+                            "EUR",
+                            date(state.tax_year, 12, 31),
+                        )
                 elif dec31_value is not None:
                     # Already in EUR, just ensure it's stored as float
                     asset_data["value_eur_dec31"] = dec31_value

@@ -200,11 +200,17 @@ class CurrencyConverter:
         Returns:
             Converted amount
         """
+        # Determine the actual date used (always Jan 1 of the year)
+        if reference_date is None:
+            actual_date = date(datetime.now().year, 1, 1)
+        else:
+            actual_date = date(reference_date.year, 1, 1)
+        
         rate = self.get_rate(from_currency, to_currency, reference_date)
         converted = amount * rate
-        logger.debug(
-            f"Converted {amount} {from_currency} to {converted:.2f} {to_currency} "
-            f"(rate: {rate})"
+        logger.info(
+            f"Currency conversion: {amount:,.2f} {from_currency} → {converted:,.2f} {to_currency} "
+            f"(rate: {rate:.6f}, reference_date: {actual_date})"
         )
         return converted
 
