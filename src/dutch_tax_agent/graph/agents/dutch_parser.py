@@ -53,14 +53,22 @@ IMPORTANT INSTRUCTIONS:
 2. Look for account balances on or near January 1st (the reference date for Box 3)
 3. Look for account balances on or near December 31st (end of tax year, needed for actual return calculation)
 4. If the document only covers one of these dates, extract that value. If it covers both, extract both.
-5. ⚠️ CRITICAL: If this is a January statement that shows BOTH 31-Dec of the previous year AND 31-Jan of the tax year, you MUST use the 31-Dec (previous year) value for value_eur_jan1, NOT the 31-Jan value. The 31-Dec value is closest to 1-Jan and is what we need for Box 3 calculations.
+5. ⚠️ CRITICAL DATE MAPPING FOR JANUARY STATEMENTS ⚠️:
+   If this is a January statement that shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024):
+   - value_eur_jan1 MUST be set to the 31-Dec (previous year) value (e.g., the 31-Dec-2023 value)
+   - value_eur_dec31 MUST be set to null (we don't have Dec 31 of the tax year yet)
+   - reference_date MUST be "2023-12-31" (or the actual 31-Dec date shown)
+   - dec31_reference_date MUST be null
+   - DO NOT use the 31-Jan value for value_eur_jan1 - that is WRONG
+   - DO NOT use the 31-Dec value for value_eur_dec31 - that is WRONG
+   - The field name "value_eur_jan1" means "value for the Jan 1 reference date", NOT "value on Jan 31"
 6. If the document doesn't cover Jan 1 or Dec 31 (or dates very close to them, accounting for weekends/holidays), you should still extract what you can, but note the date range.
-6. Identify the account type: savings, investment (stocks/bonds), crypto, or other
-7. Extract each account type separately (e.g., if there's both a savings and investment account, create two items)
-8. Look for realized gains, dividends, or interest income during the year
-9. Extract account number or IBAN if available - this is critical for matching accounts across different statements
-10. All amounts should be in EUR
-11. Return ONLY valid JSON, no additional text
+7. Identify the account type: savings, investment (stocks/bonds), crypto, or other
+8. Extract each account type separately (e.g., if there's both a savings and investment account, create two items)
+9. Look for realized gains, dividends, or interest income during the year
+10. Extract account number or IBAN if available - this is critical for matching accounts across different statements
+11. All amounts should be in EUR
+12. Return ONLY valid JSON, no additional text
 
 Document:
 {doc_text}
@@ -87,10 +95,18 @@ Return JSON in this EXACT format:
   ]
 }}
 
-IMPORTANT:
+IMPORTANT DATE MAPPING RULES:
 - If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
 - If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
-- ⚠️ CRITICAL FOR JANUARY STATEMENTS: If a January statement shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024), you MUST use the 31-Dec (previous year) value for value_eur_jan1, NOT the 31-Jan value. The 31-Dec value is closest to 1-Jan and is what we need for Box 3 calculations.
+- ⚠️ CRITICAL FOR JANUARY STATEMENTS WITH BOTH DATES ⚠️:
+  If a January statement shows BOTH 31-Dec of the previous year (e.g., 31-Dec-2023) AND 31-Jan of the tax year (e.g., 31-Jan-2024):
+  - value_eur_jan1 = 31-Dec (previous year) value (e.g., 31-Dec-2023 value)
+  - value_eur_dec31 = null (we don't have Dec 31 of the tax year yet)
+  - reference_date = "2023-12-31" (the actual 31-Dec date shown)
+  - dec31_reference_date = null
+  - DO NOT confuse the field names: "value_eur_jan1" means "value for Jan 1 reference date", NOT "value on Jan 31"
+  - DO NOT swap values: The 31-Dec value goes to value_eur_jan1, NOT to value_eur_dec31
+  - The 31-Jan value should be IGNORED for Box 3 purposes (it's too far from the Jan 1 reference date)
 - If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
 - If document only has one of these dates, that's fine - set the other to null
 - If document has neither Jan 1 nor Dec 31 (or close dates), still extract what you can but note the date range
@@ -101,6 +117,10 @@ Example: If a statement shows €20,000 in savings on 1-Jan-2024 and €30,000 i
 
 Example: If a statement shows €25,000 in savings on 31-Dec-2024, return:
 - One with asset_type="savings", value_eur_jan1=null, value_eur_dec31=25000
+
+Example: If a January 2024 statement shows €2,000 in savings on 31-Dec-2023 and €2,100 on 31-Jan-2024:
+- CORRECT: value_eur_jan1=2000, value_eur_dec31=null, reference_date="2023-12-31"
+- WRONG: value_eur_jan1=2100, value_eur_dec31=2000 (values are swapped!)
 
 If no Box 3 data is found, return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
