@@ -44,12 +44,11 @@ graph TD
         
         Check -->|Valid & Has Assets| StartBox3[Start Box 3]
         
-        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy]
-        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method]
+        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy<br/>+ Fiscal Partner Optimization]
+        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method<br/>+ Fiscal Partner Optimization]
         
-        Statutory --> Optimize[Fiscal Partner<br/>Optimization]
-        Actual --> Compare[Comparison Node]
-        Optimize --> Compare
+        Statutory --> Compare[Comparison Node]
+        Actual --> Compare
         Compare --> End2[END - Final State]
     end
 ```
@@ -95,16 +94,18 @@ graph TD
      - Savings Variant (standard for 2023-2025): Categorizes assets into Savings, Other Assets, Debts
      - Legacy Method (2022 only): Bracket-based with assumed asset mix
      - For 2022: Automatically selects the lower tax between Legacy and Savings Variant
+     - **Fiscal Partner Optimization**: Applied after calculation (if fiscal partner exists)
+       - Optimizes Box 3 asset allocation between partners
+       - Maximizes utilization of non-working partner's General Tax Credit (AHK)
+       - Critical for partners born after 1963 (no transferability)
    - **Actual Return (Hoge Raad Method)**: 
      - Based on Supreme Court rulings (June 2024)
      - Includes unrealized capital gains
      - Tax-free allowance NOT used in calculation (only in comparison)
-4. **Fiscal Partner Optimization**: 
-   - Runs after statutory calculation
-   - Optimizes Box 3 asset allocation between partners
-   - Maximizes utilization of non-working partner's General Tax Credit (AHK)
-   - Critical for partners born after 1963 (no transferability)
-5. **Comparison Agent**: Analyzes differences between statutory and actual return methods
+     - **Fiscal Partner Optimization**: Applied after calculation (if fiscal partner exists)
+       - Same optimization logic as statutory calculation
+       - Ensures both methods benefit from partner allocation optimization
+4. **Comparison Agent**: Analyzes differences between statutory and actual return methods
 6. **Final State**: Returns to main graph with calculation results and recommendations
 
 ## 4. Security Model

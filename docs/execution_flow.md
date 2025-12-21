@@ -50,13 +50,12 @@ main.py:102
        ├─> [PARALLEL EXECUTION]
        │   │
        │   ├─> statutory_calculation_node (graph/nodes/box3/statutory_calculation.py)
-       │   │   └─> calculate_statutory_tax() (Savings Variant / Legacy for 2022)
+       │   │   ├─> calculate_statutory_tax() (Savings Variant / Legacy for 2022)
+       │   │   └─> optimize_partner_allocation() (fiscal partner optimization, if applicable)
        │   │
        │   └─> actual_return_node (graph/nodes/box3/actual_return.py)
-       │       └─> calculate_actual_return() (Hoge Raad method)
-       │
-       ├─> optimization_node (graph/nodes/box3/optimization.py)
-       │   └─> optimize_partner_allocation() (fiscal partner optimization)
+       │       ├─> calculate_actual_return() (Hoge Raad method)
+       │       └─> optimize_partner_allocation() (fiscal partner optimization, if applicable)
        │
        ├─> comparison_node (graph/nodes/box3/comparison.py)
        │   └─> compare_box3_methods() (compares statutory vs actual return)
@@ -161,9 +160,8 @@ aggregate (reads from state.validated_results, collects results)
   ↓
 reducer (calculates totals, returns Command with routing decision)
   ├─→ start_box3 (if valid & has assets)
-  │     ├─→ statutory_calculation_node (Savings Variant / Legacy)
-  │     │     └─→ optimization_node (fiscal partner optimization)
-  │     ├─→ actual_return_node (parallel - Hoge Raad method)
+  │     ├─→ statutory_calculation_node (Savings Variant / Legacy + optimization)
+  │     ├─→ actual_return_node (parallel - Hoge Raad method + optimization)
   │     └─→ comparison_node (compares both methods)
   │
   └─→ END (if quarantine or no assets)
@@ -183,9 +181,9 @@ reducer (calculates totals, returns Command with routing decision)
 - **Node Functions**: `graph/nodes/*.py` - Each node implementation
 - **Parser Agents**: `graph/agents/*.py` - Document parsers
 - **Box 3 Nodes**: `graph/nodes/box3/*.py` - Box 3 calculation nodes (self-contained)
-  - `statutory_calculation.py` - Savings Variant (2023-2025) and Legacy (2022)
-  - `actual_return.py` - Hoge Raad actual return method
-  - `optimization.py` - Fiscal partner allocation optimization
+  - `statutory_calculation.py` - Savings Variant (2023-2025) and Legacy (2022) + fiscal partner optimization
+  - `actual_return.py` - Hoge Raad actual return method + fiscal partner optimization
+  - `optimization.py` - Fiscal partner allocation optimization function (called by calculation nodes)
   - `comparison.py` - Method comparison and recommendation
 - **Tax Tools**: `tools/tax_credits.py` - General Tax Credit (AHK) calculation
 
@@ -201,9 +199,8 @@ reducer (calculates totals, returns Command with routing decision)
 | 12 | `graph/nodes/aggregator.py` | Aggregate results from state.validated_results |
 | 13 | `graph/nodes/reducer.py` | Calculate totals, returns Command with routing |
 | - | `graph/nodes/box3/start_box3.py` | Start Box 3 calculations |
-| - | `graph/nodes/box3/statutory_calculation.py` | Calculate statutory tax (Savings Variant / Legacy) |
-| - | `graph/nodes/box3/optimization.py` | Optimize fiscal partner allocation |
-| - | `graph/nodes/box3/actual_return.py` | Calculate actual return (Hoge Raad method) |
+| - | `graph/nodes/box3/statutory_calculation.py` | Calculate statutory tax (Savings Variant / Legacy) + optimize partner allocation |
+| - | `graph/nodes/box3/actual_return.py` | Calculate actual return (Hoge Raad method) + optimize partner allocation |
 | - | `graph/nodes/box3/comparison.py` | Compare methods |
 | END | - | Return final state |
 

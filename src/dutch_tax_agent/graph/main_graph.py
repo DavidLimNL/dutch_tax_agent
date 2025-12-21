@@ -24,7 +24,6 @@ from dutch_tax_agent.graph.nodes import (
 )
 from dutch_tax_agent.graph.nodes.box3.actual_return import actual_return_node
 from dutch_tax_agent.graph.nodes.box3.comparison import comparison_node
-from dutch_tax_agent.graph.nodes.box3.optimization import optimization_node
 from dutch_tax_agent.graph.nodes.box3.start_box3 import start_box3_node
 from dutch_tax_agent.graph.nodes.box3.statutory_calculation import statutory_calculation_node
 from dutch_tax_agent.schemas.state import TaxGraphState
@@ -93,9 +92,9 @@ def create_tax_graph() -> StateGraph:
     4. validators -> aggregator (collects results)
     5. aggregator -> reducer (calculates totals, uses Command for routing)
     6. reducer -> start_box3 OR END (via Command based on validation/assets)
-    7. start_box3 -> statutory_calculation -> optimization
-                 -> actual_return (parallel branch)
-    8. optimization + actual_return -> comparison -> complete
+    7. start_box3 -> statutory_calculation (with optimization)
+                 -> actual_return (with optimization, parallel branch)
+    8. statutory_calculation + actual_return -> comparison -> complete
     
     Returns:
         Compiled StateGraph
@@ -123,7 +122,6 @@ def create_tax_graph() -> StateGraph:
     # Box 3 calculation nodes
     graph.add_node("start_box3", start_box3_node)
     graph.add_node("statutory_calculation", statutory_calculation_node)
-    graph.add_node("optimization", optimization_node)
     graph.add_node("actual_return", actual_return_node)
     # Use defer=True to ensure comparison only runs once after both branches complete
     graph.add_node("comparison", comparison_node, defer=True)
@@ -148,16 +146,15 @@ def create_tax_graph() -> StateGraph:
     # Reducer now uses Command for routing - no conditional edge needed
     # The Command determines whether to go to "start_box3" or END based on validation/assets
     
-    # Branch 1: Statutory Calculation -> Optimization
+    # Branch 1: Statutory Calculation (includes optimization)
     graph.add_edge("start_box3", "statutory_calculation")
-    graph.add_edge("statutory_calculation", "optimization")
     
-    # Branch 2: Actual Return (Parallel)
+    # Branch 2: Actual Return (includes optimization, parallel)
     graph.add_edge("start_box3", "actual_return")
     
     # Join: Both branches feed into comparison
     # The defer=True parameter ensures comparison only runs once after both branches complete
-    graph.add_edge("optimization", "comparison")
+    graph.add_edge("statutory_calculation", "comparison")
     graph.add_edge("actual_return", "comparison")
     
     # Comparison completes the flow

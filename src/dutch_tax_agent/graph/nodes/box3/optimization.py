@@ -177,24 +177,3 @@ def optimize_partner_allocation(
     
     return optimized_result
 
-
-def optimization_node(state: TaxGraphState) -> dict:
-    """Node that optimizes statutory calculation if partner exists."""
-    if not state.fiscal_partner or not state.fiscal_partner.is_fiscal_partner:
-        logger.info("No fiscal partner - skipping optimization")
-        return {} # No changes
-        
-    if not state.box3_fictional_yield_result:
-        return {}
-        
-    partner_dob = state.fiscal_partner.date_of_birth
-    
-    optimized = optimize_partner_allocation(
-        state.box3_fictional_yield_result,
-        partner_dob.year,
-        state.tax_year
-    )
-    
-    # We update the fictional yield result with the optimized version
-    return {"box3_fictional_yield_result": optimized}
-

@@ -50,12 +50,11 @@ graph TD
         
         Check -->|Valid & Has Assets| StartBox3[Start Box 3]
         
-        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy]
-        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method]
+        StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy<br/>+ Fiscal Partner Optimization]
+        StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method<br/>+ Fiscal Partner Optimization]
         
-        Statutory --> Optimize[Fiscal Partner<br/>Optimization]
-        Actual --> Compare[Comparison Node]
-        Optimize --> Compare
+        Statutory --> Compare[Comparison Node]
+        Actual --> Compare
         Compare --> End2[END - Final State]
     end
 ```

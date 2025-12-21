@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 
 from dutch_tax_agent.config import settings
+from dutch_tax_agent.graph.nodes.box3.optimization import optimize_partner_allocation
 from dutch_tax_agent.schemas.state import TaxGraphState
 from dutch_tax_agent.schemas.tax_entities import Box3Asset, Box3Calculation
 
@@ -204,7 +205,7 @@ def calculate_statutory_tax(
 
 
 def statutory_calculation_node(state: TaxGraphState) -> dict:
-    """Node for calculating statutory Box 3 tax."""
+    """Node for calculating statutory Box 3 tax with fiscal partner optimization."""
     has_partner = state.fiscal_partner is not None and state.fiscal_partner.is_fiscal_partner
     
     result = calculate_statutory_tax(
@@ -212,6 +213,15 @@ def statutory_calculation_node(state: TaxGraphState) -> dict:
         state.tax_year,
         has_partner
     )
+    
+    # Apply fiscal partner optimization if applicable
+    if has_partner and state.fiscal_partner:
+        partner_dob = state.fiscal_partner.date_of_birth
+        result = optimize_partner_allocation(
+            result,
+            partner_dob.year,
+            state.tax_year
+        )
     
     return {"box3_fictional_yield_result": result}
 
