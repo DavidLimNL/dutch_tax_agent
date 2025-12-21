@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from dutch_tax_agent.checkpoint_utils import generate_thread_id
 from dutch_tax_agent.config import settings
 from dutch_tax_agent.graph import create_tax_graph
 from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
@@ -34,20 +35,25 @@ console = Console()
 class DutchTaxAgent:
     """Main orchestrator for the Dutch Tax Agent."""
 
-    def __init__(self, tax_year: int = 2024, has_fiscal_partner: bool = True) -> None:
+    def __init__(self, tax_year: int = 2024, has_fiscal_partner: bool = True, thread_id: Optional[str] = None) -> None:
         """Initialize the tax agent.
         
         Args:
             tax_year: Tax year to process (2022-2025)
             has_fiscal_partner: Whether to assume fiscal partnership (default: True)
+            thread_id: Optional thread ID for checkpointing (generated if not provided)
         """
         self.tax_year = tax_year
         self.has_fiscal_partner = has_fiscal_partner
+        self.thread_id = thread_id or generate_thread_id(prefix=f"tax{tax_year}")
         self.pdf_parser = PDFParser()
         self.pii_scrubber = PIIScrubber()
         self.graph = create_tax_graph()
 
-        logger.info(f"Initialized Dutch Tax Agent for tax year {tax_year} (fiscal partner: {has_fiscal_partner})")
+        logger.info(
+            f"Initialized Dutch Tax Agent for tax year {tax_year} "
+            f"(fiscal partner: {has_fiscal_partner}, thread: {self.thread_id})"
+        )
 
     def process_documents(self, pdf_paths: list[Path]) -> TaxGraphState:
         """Process a list of PDF documents through the entire pipeline.
@@ -142,17 +148,30 @@ class DutchTaxAgent:
             task = progress.add_task("Running LangGraph pipeline...")
             
             try:
-                # Use invoke() for simple execution
+                # Create config with thread_id for checkpointing
+                config = {
+                    "configurable": {
+                        "thread_id": self.thread_id
+                    }
+                }
+                
+                if settings.enable_checkpointing:
+                    logger.info(f"Executing graph with checkpointing (thread: {self.thread_id})")
+                    console.print(f"[dim]Thread ID: {self.thread_id}[/dim]")
+                else:
+                    logger.info("Executing graph without checkpointing")
+                
+                # Use invoke() with config for checkpointing support
                 # To trace execution, see docs/execution_flow.md
                 # Or uncomment below to use streaming mode:
                 # final_state = None
-                # for event in self.graph.stream(initial_state):
+                # for event in self.graph.stream(initial_state, config=config):
                 #     node_name = list(event.keys())[0] if event else "unknown"
                 #     logger.info(f"Executing node: {node_name}")
                 #     console.print(f"[dim]→ Node: {node_name}[/dim]")
                 #     final_state = list(event.values())[0]
                 
-                final_state = self.graph.invoke(initial_state)
+                final_state = self.graph.invoke(initial_state, config=config)
                 progress.update(task, description="Pipeline complete!", completed=True)
             except Exception as e:
                 console.print(f"[red]❌ Graph execution failed: {e}[/red]")
@@ -240,13 +259,14 @@ class DutchTaxAgent:
                 console.print(f"  • {error}")
 
 
-def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_partner: bool = True) -> None:
+def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_partner: bool = True, thread_id: Optional[str] = None) -> None:
     """Main entry point.
     
     Args:
         input_dir: Directory containing PDF files
         tax_year: Tax year to process (2022-2025)
         has_fiscal_partner: Whether to assume fiscal partnership (default: True)
+        thread_id: Optional thread ID for resuming from checkpoint
     """
     if not input_dir:
         input_dir = Path("./sample_docs")
@@ -265,7 +285,7 @@ def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_part
     console.print(f"[bold]Found {len(pdf_files)} PDF files[/bold]\n")
 
     # Create agent and process
-    agent = DutchTaxAgent(tax_year=tax_year, has_fiscal_partner=has_fiscal_partner)
+    agent = DutchTaxAgent(tax_year=tax_year, has_fiscal_partner=has_fiscal_partner, thread_id=thread_id)
 
     try:
         agent.process_documents(pdf_files)
@@ -298,6 +318,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable fiscal partnership optimization (default: fiscal partner assumed)",
     )
+    parser.add_argument(
+        "--thread-id",
+        "-t",
+        type=str,
+        default=None,
+        help="Thread ID for resuming from checkpoint (generates new if not provided)",
+    )
     
     args = parser.parse_args()
     
@@ -305,5 +332,10 @@ if __name__ == "__main__":
     input_dir_str = os.path.expanduser(args.input_dir)
     input_dir = Path(input_dir_str)
     
-    main(input_dir=input_dir, tax_year=args.year, has_fiscal_partner=not args.no_fiscal_partner)
+    main(
+        input_dir=input_dir,
+        tax_year=args.year,
+        has_fiscal_partner=not args.no_fiscal_partner,
+        thread_id=args.thread_id
+    )
 

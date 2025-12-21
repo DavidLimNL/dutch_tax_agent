@@ -78,6 +78,19 @@ class Settings(BaseSettings):
     enable_parallel_parsing: bool = Field(default=True, alias="ENABLE_PARALLEL_PARSING")
     max_parallel_docs: int = Field(default=10, alias="MAX_PARALLEL_DOCS")
 
+    # Checkpointing Configuration
+    enable_checkpointing: bool = Field(default=True, alias="ENABLE_CHECKPOINTING")
+    checkpoint_backend: Literal["memory", "sqlite", "postgres"] = Field(
+        default="memory", 
+        alias="CHECKPOINT_BACKEND",
+        description="Backend for checkpointing: memory (dev), sqlite (prod), postgres (enterprise)"
+    )
+    checkpoint_db_path: Path = Field(
+        default_factory=lambda: Path(__file__).parent.parent.parent / "data" / "checkpoints.db",
+        alias="CHECKPOINT_DB_PATH",
+        description="Path to SQLite checkpoint database (if using sqlite backend)"
+    )
+
     # Paths
     project_root: Path = Field(default_factory=lambda: Path(__file__).parent.parent.parent)
     data_dir: Path = Field(default_factory=lambda: Path(__file__).parent / "data")

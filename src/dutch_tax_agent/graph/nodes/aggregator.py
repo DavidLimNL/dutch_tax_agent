@@ -47,10 +47,32 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
         f"{len(all_errors)} errors"
     )
 
+    # Clear document text after aggregation to reduce token usage and memory
+    # The full document text is no longer needed since we have structured extraction results
+    # Note: Parser agents received data via Send objects, not from state, so we can safely clear:
+    # - documents: Full scrubbed document text
+    # - classified_documents: Contains doc_text that was only needed for routing
+    doc_count = len(state.documents)
+    doc_chars = sum(len(doc.scrubbed_text) for doc in state.documents)
+    classified_count = len(state.classified_documents)
+    classified_chars = sum(
+        len(doc.get("doc_text", "")) for doc in state.classified_documents
+    )
+    
+    if doc_count > 0 or classified_count > 0:
+        total_chars = doc_chars + classified_chars
+        logger.info(
+            f"Clearing {doc_count} documents and {classified_count} classified entries "
+            f"({total_chars:,} characters) from state after successful extraction. "
+            f"Structured data retained."
+        )
+
     return {
         "box1_income_items": all_box1_items,
         "box3_asset_items": all_box3_items,
         "validation_errors": list(state.validation_errors) + all_errors,
         "status": "validating",
+        "documents": [],  # Clear to save memory and tokens
+        "classified_documents": [],  # Clear classified_documents.doc_text as well
     }
 

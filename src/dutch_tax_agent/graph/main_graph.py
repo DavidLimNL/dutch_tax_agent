@@ -5,9 +5,12 @@ in their respective modules under graph/nodes/.
 """
 
 import logging
+import os
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
 
+from dutch_tax_agent.config import settings
 from dutch_tax_agent.graph.agents import (
     dutch_parser_agent,
     salary_parser_agent,
@@ -27,6 +30,57 @@ from dutch_tax_agent.graph.nodes.box3.statutory_calculation import statutory_cal
 from dutch_tax_agent.schemas.state import TaxGraphState
 
 logger = logging.getLogger(__name__)
+
+
+def create_checkpointer():
+    """Create a checkpointer based on configuration.
+    
+    Returns:
+        Checkpointer instance (MemorySaver, SqliteSaver, or PostgresSaver)
+    """
+    if not settings.enable_checkpointing:
+        logger.info("Checkpointing disabled")
+        return None
+    
+    backend = settings.checkpoint_backend
+    
+    if backend == "memory":
+        logger.info("Using MemorySaver for checkpointing (development mode)")
+        return MemorySaver()
+    
+    elif backend == "sqlite":
+        logger.info(f"Using SqliteSaver for checkpointing: {settings.checkpoint_db_path}")
+        try:
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            # Ensure parent directory exists
+            settings.checkpoint_db_path.parent.mkdir(parents=True, exist_ok=True)
+            return SqliteSaver.from_conn_string(str(settings.checkpoint_db_path))
+        except ImportError:
+            logger.warning(
+                "SqliteSaver not available. Install with: uv add langgraph-checkpoint-sqlite. "
+                "Falling back to MemorySaver."
+            )
+            return MemorySaver()
+    
+    elif backend == "postgres":
+        logger.info("Using PostgresSaver for checkpointing")
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            # This requires POSTGRES_URI in environment
+            postgres_uri = os.getenv("POSTGRES_URI")
+            if not postgres_uri:
+                raise ValueError("POSTGRES_URI environment variable required for postgres backend")
+            return PostgresSaver.from_conn_string(postgres_uri)
+        except ImportError:
+            logger.warning(
+                "PostgresSaver not available. Install with: uv add langgraph-checkpoint-postgres. "
+                "Falling back to MemorySaver."
+            )
+            return MemorySaver()
+    
+    else:
+        logger.warning(f"Unknown checkpoint backend: {backend}. Using MemorySaver.")
+        return MemorySaver()
 
 
 def create_tax_graph() -> StateGraph:
@@ -87,7 +141,7 @@ def create_tax_graph() -> StateGraph:
     # Validator results go to aggregator
     graph.add_edge("validator", "aggregate")
     
-    # Aggregator goes to reducer
+    # Aggregator goes to reducer (documents cleared during aggregation)
     graph.add_edge("aggregate", "reducer")
     
     # Reducer now uses Command for routing - no conditional edge needed
@@ -109,6 +163,13 @@ def create_tax_graph() -> StateGraph:
 
     logger.info("Main tax graph created successfully")
 
-    return graph.compile()
+    # Compile with checkpointer
+    checkpointer = create_checkpointer()
+    if checkpointer:
+        logger.info("Compiling graph with checkpointing enabled")
+        return graph.compile(checkpointer=checkpointer)
+    else:
+        logger.info("Compiling graph without checkpointing")
+        return graph.compile()
 
 
