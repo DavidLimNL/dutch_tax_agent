@@ -59,7 +59,7 @@ class AddressRecognizer(PatternRecognizer):
         """Build regex patterns for all address variations.
         
         Args:
-            address_configs: List of address dicts with keys: street, number, postal_code, city, full_address
+            address_configs: List of address dicts with keys: street, number, postal_code, city, province, country, full_address
             
         Returns:
             List of Pattern objects for address matching
@@ -88,6 +88,15 @@ class AddressRecognizer(PatternRecognizer):
                 countries = [country_input.strip().upper()]
             else:
                 countries = []
+            
+            # Support both single province string and list of provinces (for Dutch/English variations)
+            province_input = addr_config.get("province", "")
+            if isinstance(province_input, list):
+                provinces = [p.strip().upper() for p in province_input if p]
+            elif province_input:
+                provinces = [province_input.strip().upper()]
+            else:
+                provinces = []
             
             full_address = addr_config.get("full_address", "").strip().upper()
             
@@ -266,13 +275,27 @@ class AddressRecognizer(PatternRecognizer):
             
             # Pattern 10: Countries (if provided) - supports multiple country names (Dutch/English)
             # Matches: "NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"
+            # No word boundaries to catch countries that may appear without clear boundaries
             for country_idx, country in enumerate(countries):
-                country_pattern = r"(?i)\b" + self._escape_regex(country) + r"\b"
+                country_pattern = r"(?i)" + self._escape_regex(country)
                 patterns.append(
                     Pattern(
                         name=f"country_{idx}_{country_idx}",
                         regex=country_pattern,
                         score=0.75,  # Medium confidence for country (might have false positives)
+                    )
+                )
+            
+            # Pattern 10b: Provinces (if provided) - supports multiple province names (Dutch/English)
+            # Matches: "ZUIDHOLLAND", "NOORDHOLLAND", etc.
+            # No word boundaries to catch provinces that may appear without clear boundaries
+            for province_idx, province in enumerate(provinces):
+                province_pattern = r"(?i)" + self._escape_regex(province)
+                patterns.append(
+                    Pattern(
+                        name=f"province_{idx}_{province_idx}",
+                        regex=province_pattern,
+                        score=0.80,  # Medium-high confidence for province
                     )
                 )
             
@@ -313,14 +336,243 @@ class AddressRecognizer(PatternRecognizer):
                         )
             
             # Pattern 13: Reversed full address (if full_address exists)
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
             if full_address:
-                reversed_full = full_address[::-1]  # Reverse character by character
-                reversed_full_pattern = r"(?i)\b" + self._escape_regex(reversed_full) + r"\b"
+                full_no_spaces = full_address.replace(" ", "")
+                reversed_full = full_no_spaces[::-1]  # Reverse character by character
+                reversed_full_pattern = r"(?i)" + self._escape_regex(reversed_full)
                 patterns.append(
                     Pattern(
                         name=f"reversed_full_address_{idx}",
                         regex=reversed_full_pattern,
                         score=0.90,
+                    )
+                )
+            
+            # Pattern 14: Reversed street name (if provided)
+            # Matches reversed street names (e.g., "TSAERTS" for "STREET")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            if street:
+                street_no_spaces = street.replace(" ", "")
+                reversed_street = street_no_spaces[::-1]
+                reversed_street_pattern = r"(?i)" + self._escape_regex(reversed_street)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_street_{idx}",
+                        regex=reversed_street_pattern,
+                        score=0.85,
+                    )
+                )
+            
+            # Pattern 15: Reversed street + number (if both provided)
+            # Matches reversed combinations (e.g., "321TSAERTS" for "STREET 123")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            if street and number:
+                street_no_spaces = street.replace(" ", "")
+                
+                # Case 1: Full reversal of "number + street" string (spaces removed)
+                combined_no_spaces = number + street_no_spaces
+                reversed_street_number = combined_no_spaces[::-1]
+                reversed_street_number_pattern = r"(?i)" + self._escape_regex(reversed_street_number)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_street_number_{idx}",
+                        regex=reversed_street_number_pattern,
+                        score=0.95,
+                    )
+                )
+                
+                # Case 2: Number NOT reversed + street reversed (e.g., "123TSAERTS" for "STREET 123")
+                reversed_street_only = street_no_spaces[::-1]
+                number_not_reversed_street_reversed = number + reversed_street_only
+                number_not_reversed_street_reversed_pattern = r"(?i)" + self._escape_regex(number_not_reversed_street_reversed)
+                patterns.append(
+                    Pattern(
+                        name=f"number_not_reversed_street_reversed_{idx}",
+                        regex=number_not_reversed_street_reversed_pattern,
+                        score=0.95,
+                    )
+                )
+                
+                # Case 3: Reversed street + reversed number (both reversed separately, street first)
+                reversed_number = number[::-1]
+                reversed_street_reversed_number = reversed_street_only + reversed_number
+                reversed_street_reversed_number_pattern = r"(?i)" + self._escape_regex(reversed_street_reversed_number)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_street_reversed_number_{idx}",
+                        regex=reversed_street_reversed_number_pattern,
+                        score=0.95,
+                    )
+                )
+                
+                # Case 4: Reversed number + reversed street (both reversed separately, number first)
+                # Matches "27TAARTSAAREDNAV" for "VAN DER AASTRAAT 72"
+                reversed_number_reversed_street = reversed_number + reversed_street_only
+                reversed_number_reversed_street_pattern = r"(?i)" + self._escape_regex(reversed_number_reversed_street)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_number_reversed_street_{idx}",
+                        regex=reversed_number_reversed_street_pattern,
+                        score=0.95,
+                    )
+                )
+            
+            # Pattern 16: Reversed cities (if provided)
+            # Matches reversed city names (e.g., "YTIC" for "CITY")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            for city_idx, city in enumerate(cities):
+                city_no_spaces = city.replace(" ", "")
+                reversed_city = city_no_spaces[::-1]
+                reversed_city_pattern = r"(?i)" + self._escape_regex(reversed_city)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_city_{idx}_{city_idx}",
+                        regex=reversed_city_pattern,
+                        score=0.80,
+                    )
+                )
+            
+            # Pattern 16b: Reversed provinces (if provided)
+            # Matches reversed province names (e.g., "DNALLOHDIUZ" for "ZUIDHOLLAND")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            for province_idx, province in enumerate(provinces):
+                province_no_spaces = province.replace(" ", "")
+                reversed_province = province_no_spaces[::-1]
+                reversed_province_pattern = r"(?i)" + self._escape_regex(reversed_province)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_province_{idx}_{province_idx}",
+                        regex=reversed_province_pattern,
+                        score=0.80,
+                    )
+                )
+            
+            # Pattern 16c: Reversed countries (if provided)
+            # Matches reversed country names (e.g., "SDNALREHTEN" for "NETHERLANDS")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            for country_idx, country in enumerate(countries):
+                country_no_spaces = country.replace(" ", "")
+                reversed_country = country_no_spaces[::-1]
+                reversed_country_pattern = r"(?i)" + self._escape_regex(reversed_country)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_country_{idx}_{country_idx}",
+                        regex=reversed_country_pattern,
+                        score=0.75,
+                    )
+                )
+            
+            # Pattern 17: Reversed postal code (if provided)
+            # Matches reversed postal codes like "BA4321" for "1234AB"
+            # No word boundaries to catch reversed text on separate lines
+            if postal_code and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                reversed_postal_pattern = r"(?i)" + self._escape_regex(reversed_postal)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_postal_code_{idx}",
+                        regex=reversed_postal_pattern,
+                        score=0.90,
+                    )
+                )
+                
+                # Also handle reversed digits + reversed letters separately
+                digits = postal_code[:4]
+                letters = postal_code[4:]
+                reversed_digits = digits[::-1]
+                reversed_letters = letters[::-1]
+                reversed_postal_separate = reversed_digits + reversed_letters
+                reversed_postal_separate_pattern = r"(?i)" + self._escape_regex(reversed_postal_separate)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_postal_code_separate_{idx}",
+                        regex=reversed_postal_separate_pattern,
+                        score=0.90,
+                    )
+                )
+            
+            # Pattern 18: Reversed postal code + city (if both provided)
+            # Matches reversed combinations (e.g., "YTICBA4321" for "1234AB CITY")
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            if postal_code and cities and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                for city_idx, city in enumerate(cities):
+                    city_no_spaces = city.replace(" ", "")
+                    reversed_city = city_no_spaces[::-1]
+                    
+                    # Case 1: Full reversal of "postal city" string (spaces removed from city)
+                    postal_city_combined_no_spaces = postal_code + city_no_spaces
+                    reversed_postal_city_full = postal_city_combined_no_spaces[::-1]
+                    reversed_postal_city_full_pattern = r"(?i)" + self._escape_regex(reversed_postal_city_full)
+                    patterns.append(
+                        Pattern(
+                            name=f"reversed_postal_city_full_{idx}_{city_idx}",
+                            regex=reversed_postal_city_full_pattern,
+                            score=0.95,
+                        )
+                    )
+                    
+                    # Case 2: Full reversal of "postal city" string without space (already handled above)
+                    # This case is the same as Case 1 now
+                    
+                    # Case 3: Reversed city + reversed postal (both reversed separately, concatenated)
+                    reversed_postal_city = reversed_city + reversed_postal
+                    reversed_postal_city_pattern = r"(?i)" + self._escape_regex(reversed_postal_city)
+                    patterns.append(
+                        Pattern(
+                            name=f"reversed_postal_city_{idx}_{city_idx}",
+                            regex=reversed_postal_city_pattern,
+                            score=0.95,
+                        )
+                    )
+                    
+                    # Case 4: City NOT reversed + postal reversed (spaces removed from city)
+                    city_no_spaces_not_reversed = city_no_spaces
+                    city_not_reversed_postal_reversed = city_no_spaces_not_reversed + reversed_postal
+                    city_not_reversed_postal_reversed_pattern = r"(?i)" + self._escape_regex(city_not_reversed_postal_reversed)
+                    patterns.append(
+                        Pattern(
+                            name=f"city_not_reversed_postal_reversed_{idx}_{city_idx}",
+                            regex=city_not_reversed_postal_reversed_pattern,
+                            score=0.95,
+                        )
+                    )
+                    
+                    # Case 5: Reversed city + postal NOT reversed
+                    reversed_city_postal_not_reversed = reversed_city + postal_code
+                    reversed_city_postal_not_reversed_pattern = r"(?i)" + self._escape_regex(reversed_city_postal_not_reversed)
+                    patterns.append(
+                        Pattern(
+                            name=f"reversed_city_postal_not_reversed_{idx}_{city_idx}",
+                            regex=reversed_city_postal_not_reversed_pattern,
+                            score=0.95,
+                        )
+                    )
+            
+            # Pattern 19: Reversed street + number + postal code (if all provided)
+            # No word boundaries to catch reversed text on separate lines
+            # Remove spaces before reversing to match documents where spaces are removed
+            if street and number and postal_code and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                street_no_spaces = street.replace(" ", "")
+                reversed_street = street_no_spaces[::-1]
+                reversed_number = number[::-1]
+                # Reversed: postal + number + street (concatenated)
+                reversed_street_number_postal = reversed_postal + reversed_number + reversed_street
+                reversed_street_number_postal_pattern = r"(?i)" + self._escape_regex(reversed_street_number_postal)
+                patterns.append(
+                    Pattern(
+                        name=f"reversed_street_number_postal_{idx}",
+                        regex=reversed_street_number_postal_pattern,
+                        score=0.95,
                     )
                 )
         
@@ -376,6 +628,15 @@ class AddressRecognizer(PatternRecognizer):
             else:
                 countries = []
             
+            # Support both single province string and list of provinces (for Dutch/English variations)
+            province_input = addr_config.get("province", "")
+            if isinstance(province_input, list):
+                provinces = [p.strip().upper() for p in province_input if p]
+            elif province_input:
+                provinces = [province_input.strip().upper()]
+            else:
+                provinces = []
+            
             full_address = addr_config.get("full_address", "").strip().upper()
             
             # Check exact matches
@@ -388,6 +649,10 @@ class AddressRecognizer(PatternRecognizer):
             
             # Check against all country variations
             if text_upper in countries:
+                return True
+            
+            # Check against all province variations
+            if text_upper in provinces:
                 return True
             
             # Check number (only if it's part of a street+number combination to avoid false positives)
@@ -460,10 +725,119 @@ class AddressRecognizer(PatternRecognizer):
                             text_upper == f"{digits} {letters} {city} {country}"):
                             return True
             
-            # Check reversed variations
+            # Check reversed variations (remove spaces before reversing)
             if full_address:
-                reversed_full = full_address[::-1]
+                full_no_spaces = full_address.replace(" ", "")
+                reversed_full = full_no_spaces[::-1]
                 if text_upper == reversed_full:
+                    return True
+            
+            # Check reversed street (remove spaces before reversing)
+            if street:
+                street_no_spaces = street.replace(" ", "")
+                reversed_street = street_no_spaces[::-1]
+                if text_upper == reversed_street:
+                    return True
+            
+            # Check reversed street + number (remove spaces before reversing)
+            if street and number:
+                street_no_spaces = street.replace(" ", "")
+                
+                # Case 1: Full reversal of "number + street" string (spaces removed)
+                combined_no_spaces = number + street_no_spaces
+                reversed_street_number = combined_no_spaces[::-1]
+                if text_upper == reversed_street_number:
+                    return True
+                
+                # Case 2: Number NOT reversed + street reversed (e.g., "123TSAERTS")
+                reversed_street_only = street_no_spaces[::-1]
+                number_not_reversed_street_reversed = number + reversed_street_only
+                if text_upper == number_not_reversed_street_reversed:
+                    return True
+                
+                # Case 3: Reversed street + reversed number (both reversed separately, street first)
+                reversed_number = number[::-1]
+                reversed_street_reversed_number = reversed_street_only + reversed_number
+                if text_upper == reversed_street_reversed_number:
+                    return True
+                
+                # Case 4: Reversed number + reversed street (both reversed separately, number first)
+                reversed_number_reversed_street = reversed_number + reversed_street_only
+                if text_upper == reversed_number_reversed_street:
+                    return True
+            
+            # Check reversed cities (remove spaces before reversing)
+            for city in cities:
+                city_no_spaces = city.replace(" ", "")
+                reversed_city = city_no_spaces[::-1]
+                if text_upper == reversed_city:
+                    return True
+            
+            # Check reversed provinces (remove spaces before reversing)
+            for province in provinces:
+                province_no_spaces = province.replace(" ", "")
+                reversed_province = province_no_spaces[::-1]
+                if text_upper == reversed_province:
+                    return True
+            
+            # Check reversed countries (remove spaces before reversing)
+            for country in countries:
+                country_no_spaces = country.replace(" ", "")
+                reversed_country = country_no_spaces[::-1]
+                if text_upper == reversed_country:
+                    return True
+            
+            # Check reversed postal code
+            if postal_code and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                if text_upper == reversed_postal:
+                    return True
+                
+                digits = postal_code[:4]
+                letters = postal_code[4:]
+                reversed_digits = digits[::-1]
+                reversed_letters = letters[::-1]
+                reversed_postal_separate = reversed_digits + reversed_letters
+                if text_upper == reversed_postal_separate:
+                    return True
+            
+            # Check reversed postal code + city (remove spaces before reversing)
+            if postal_code and cities and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                for city in cities:
+                    city_no_spaces = city.replace(" ", "")
+                    reversed_city = city_no_spaces[::-1]
+                    
+                    # Case 1: Full reversal of "postal city" string (spaces removed from city)
+                    postal_city_combined_no_spaces = postal_code + city_no_spaces
+                    reversed_postal_city_full = postal_city_combined_no_spaces[::-1]
+                    if text_upper == reversed_postal_city_full:
+                        return True
+                    
+                    # Case 3: Reversed city + reversed postal (both reversed separately)
+                    reversed_postal_city = reversed_city + reversed_postal
+                    if text_upper == reversed_postal_city:
+                        return True
+                    
+                    # Case 4: City NOT reversed + postal reversed (spaces removed from city)
+                    city_no_spaces_not_reversed = city_no_spaces
+                    city_not_reversed_postal_reversed = city_no_spaces_not_reversed + reversed_postal
+                    if text_upper == city_not_reversed_postal_reversed:
+                        return True
+                    
+                    # Case 5: Reversed city + postal NOT reversed
+                    reversed_city_postal_not_reversed = reversed_city + postal_code
+                    if text_upper == reversed_city_postal_not_reversed:
+                        return True
+            
+            # Check reversed street + number + postal code (remove spaces before reversing)
+            if street and number and postal_code and len(postal_code) == 6:
+                reversed_postal = postal_code[::-1]
+                street_no_spaces = street.replace(" ", "")
+                reversed_street = street_no_spaces[::-1]
+                reversed_number = number[::-1]
+                reversed_street_number_postal = reversed_postal + reversed_number + reversed_street
+                if text_upper == reversed_street_number_postal:
                     return True
         
         return None  # Let Presidio decide based on pattern score

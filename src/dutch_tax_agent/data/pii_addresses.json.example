@@ -5,6 +5,7 @@
       "number": "123",
       "postal_code": "1234AB",
       "city": ["CITYNAME", "CITY NAME ENGLISH"],
+      "province": ["PROVINCENAME", "PROVINCE NAME ENGLISH"],
       "country": ["NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"],
       "full_address": "STREET NAME 123 1234 AB CITYNAME"
     }
