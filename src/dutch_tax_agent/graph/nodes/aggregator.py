@@ -192,11 +192,12 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 if doc_in_dec:
                     dec_documents.append(a)
             
-            # Extract Jan 1 value from January-dated documents only
+            # Extract Jan 1 value from January-dated documents (preferred) or from other documents with Jan 1 values
+            # This includes dec_prev_year documents (December statements of previous year used as Jan 1 value)
             merged_jan1 = None
             has_jan1 = False
             if jan_documents:
-                # Look for Jan 1 value in January documents
+                # Look for Jan 1 value in January documents (preferred)
                 for a in jan_documents:
                     if getattr(a, '_jan1_was_extracted', True):
                         merged_jan1 = a.value_eur_jan1
@@ -211,11 +212,24 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                         f"({base_asset.asset_type}), assuming 0.0"
                     )
             else:
-                # No January documents found - cannot determine Jan 1 value
-                logger.warning(
-                    f"No January-dated documents found for {base_asset.description or 'Unknown'} "
-                    f"({base_asset.asset_type}), cannot determine Jan 1 value"
-                )
+                # No January documents found - check all assets for Jan 1 values
+                # This handles cases like dec_prev_year documents (December of previous year used as Jan 1)
+                for a in assets:
+                    if getattr(a, '_jan1_was_extracted', True) and a.value_eur_jan1 is not None:
+                        merged_jan1 = a.value_eur_jan1
+                        has_jan1 = True
+                        logger.info(
+                            f"Found Jan 1 value from non-January document for {base_asset.description or 'Unknown'} "
+                            f"({base_asset.asset_type}) - likely from December statement of previous year"
+                        )
+                        break
+                
+                if not has_jan1:
+                    # No Jan 1 value found in any document - cannot determine Jan 1 value
+                    logger.warning(
+                        f"No January-dated documents or Jan 1 values found for {base_asset.description or 'Unknown'} "
+                        f"({base_asset.asset_type}), cannot determine Jan 1 value"
+                    )
             
             # Extract Dec 31 value from December-dated documents only
             merged_dec31 = None

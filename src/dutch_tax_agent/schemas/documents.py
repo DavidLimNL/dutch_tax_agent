@@ -39,9 +39,9 @@ class DocumentClassification(BaseModel):
         default=None,
         description="Tax year extracted from document (None if not found or unclear)",
     )
-    statement_subtype: Literal["jan_period", "dec_period", "full_year", None] = Field(
+    statement_subtype: Literal["jan_period", "dec_period", "dec_prev_year", "full_year", None] = Field(
         default=None,
-        description="For broker statements: jan_period (Jan statement), dec_period (Dec statement), or full_year (full year statement). None for non-broker documents.",
+        description="For broker statements: jan_period (Jan statement), dec_period (Dec statement of tax year), dec_prev_year (Dec statement of previous year, used as Jan 1 value), or full_year (full year statement). None for non-broker documents.",
     )
 
 

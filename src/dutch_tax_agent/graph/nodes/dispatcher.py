@@ -13,17 +13,22 @@ from dutch_tax_agent.schemas.state import TaxGraphState
 logger = logging.getLogger(__name__)
 
 
-def classify_document(doc_text: str, doc_id: str) -> DocumentClassification:
+def classify_document(doc_text: str, doc_id: str, tax_year: int | None = None) -> DocumentClassification:
     """Classify a document to determine which parser agent to use and extract tax year.
     
     Args:
         doc_text: Scrubbed document text
         doc_id: Document ID
+        tax_year: Tax year being processed (used to distinguish dec_period from dec_prev_year)
         
     Returns:
         DocumentClassification with type, confidence, and tax year
     """
     llm = create_llm(temperature=0)
+
+    tax_year_context = ""
+    if tax_year is not None:
+        tax_year_context = f"\n\nIMPORTANT CONTEXT: The tax year being processed is {tax_year}. Use this to distinguish between dec_period (Dec {tax_year}) and dec_prev_year (Dec {tax_year - 1})."
 
     prompt = f"""Classify this financial document and extract the tax year.
 
@@ -42,9 +47,17 @@ Second, extract the tax year from the document. Look for:
 
 Third, IF the document is a us_broker_statement or crypto_broker_statement, identify the statement subtype:
 - jan_period: January period statement (typically shows Dec 31 of previous year and/or Jan 31 of tax year)
-- dec_period: December period statement (typically shows Dec 31 of the tax year)
+- dec_period: December period statement of the TAX YEAR (e.g., Dec 2024 for tax year 2024, shows Dec 31 of the tax year)
+- dec_prev_year: December period statement of the PREVIOUS YEAR (e.g., Dec 2023 for tax year 2024, shows Dec 31 of the previous year - this should be used as Jan 1 value)
 - full_year: Full year statement (covers the entire tax year, typically shows both Jan 1 and Dec 31 values)
 - null: If it's not a broker statement, or if the subtype cannot be determined
+
+IMPORTANT: To distinguish between dec_period and dec_prev_year:
+- Look at the dates in the document and compare them to the tax year being processed
+- If the document shows Dec 31 of the tax year (e.g., 2024-12-31 for tax year 2024), use dec_period
+- If the document shows Dec 31 of the previous year (e.g., 2023-12-31 for tax year 2024), use dec_prev_year
+- If the tax year is unclear, check the document dates: if it's clearly from the previous year (e.g., "December 2023" statement when processing tax year 2024), use dec_prev_year
+{tax_year_context}
 
 Document text (first 1000 chars):
 {doc_text[:1000]}
@@ -53,10 +66,11 @@ Respond with FOUR values separated by commas:
 1. Category name
 2. Confidence (0-1)
 3. Tax year (as integer, or "null" if not found/unclear)
-4. Statement subtype (jan_period, dec_period, full_year, or "null" if not applicable/unclear)
+4. Statement subtype (jan_period, dec_period, dec_prev_year, full_year, or "null" if not applicable/unclear)
 
 Example: dutch_bank_statement,0.95,2024,null
 Example: us_broker_statement,0.90,2024,dec_period
+Example: us_broker_statement,0.90,2024,dec_prev_year
 Example: crypto_broker_statement,0.85,2024,jan_period
 Example if year unclear: us_broker_statement,0.90,null,full_year
 """
@@ -114,7 +128,7 @@ Example if year unclear: us_broker_statement,0.90,null,full_year
         if len(parts) > 3:
             subtype_str = parts[3].strip().lower()
             if subtype_str not in ["null", "none", ""]:
-                if subtype_str in ["jan_period", "dec_period", "full_year"]:
+                if subtype_str in ["jan_period", "dec_period", "dec_prev_year", "full_year"]:
                     # Only set subtype for broker statements
                     if doc_type in ["us_broker_statement", "crypto_broker_statement"]:
                         statement_subtype = subtype_str  # type: ignore
@@ -125,7 +139,7 @@ Example if year unclear: us_broker_statement,0.90,null,full_year
                 else:
                     logger.warning(
                         f"Unknown statement subtype '{subtype_str}' for {doc_id}. "
-                        f"Expected: jan_period, dec_period, full_year, or null"
+                        f"Expected: jan_period, dec_period, dec_prev_year, full_year, or null"
                     )
 
         logger.info(
@@ -184,7 +198,8 @@ def dispatcher_node(state: TaxGraphState) -> Command:
 
     for doc in state.documents:
         # Classify the document (includes type and tax year extraction)
-        classification = classify_document(doc.scrubbed_text, doc.doc_id)
+        # Pass tax_year to help distinguish between dec_period and dec_prev_year
+        classification = classify_document(doc.scrubbed_text, doc.doc_id, tax_year=state.tax_year)
 
         # Check if tax year matches
         tax_year_mismatch = False

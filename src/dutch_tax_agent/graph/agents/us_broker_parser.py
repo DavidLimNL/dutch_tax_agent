@@ -183,6 +183,83 @@ If you cannot find BOTH cash AND investment account values (neither can be extra
 """
 
 
+def _get_dec_prev_year_prompt(doc_text: str) -> str:
+    """Generate prompt for December period statements of the previous year (used as Jan 1 value)."""
+    return f"""You are a specialized brokerage statement parser for Dutch tax purposes.
+
+Extract Box 3 wealth data from a DECEMBER PERIOD STATEMENT OF THE PREVIOUS YEAR.
+
+This is a December statement from the PREVIOUS year (e.g., Dec 2023 for tax year 2024) that shows:
+- 31-Dec of the previous year (e.g., 31-Dec-2023) - this value goes to value_eur_jan1 (as it represents the Jan 1 value for the tax year)
+- We do NOT have Dec 31 of the tax year in this document, so value_eur_dec31 must be null
+
+CRITICAL: This document is being used as a substitute for the Jan 1 value because:
+- The January statement may only have 31-Jan values (which are too far from Jan 1)
+- The January statement may not have 31-Dec of the previous year values
+- This December statement of the previous year provides the closest approximation to Jan 1
+
+CRITICAL: Brokerages ALWAYS have TWO separate account types:
+1. CASH/Savings account (cash balance, fiat currency, money market funds, uninvested cash) - use asset_type="savings"
+2. INVESTMENT account (stocks, bonds, ETFs, mutual funds, crypto assets, options) - use asset_type="stocks" (or "crypto" for crypto holdings)
+
+These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different fictional yield rates for savings vs investments.
+
+⚠️ CRITICAL EXTRACTION WARNING ⚠️:
+You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
+DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
+
+MANDATORY EXTRACTION RULE:
+- You MUST ALWAYS extract BOTH a cash account AND an investment account
+- If you can find one but not the other, set the missing one to 0 (zero)
+
+⚠️ CRITICAL DATE MAPPING FOR DECEMBER PREVIOUS YEAR STATEMENTS ⚠️:
+- value_eur_jan1 MUST be set to the Dec 31 value shown in the document (from the previous year)
+- value_eur_dec31 MUST be set to null (we don't have Dec 31 of the tax year in this document)
+- reference_date MUST be set to the actual Dec 31 date shown (e.g., "2023-12-31" for a Dec 2023 statement)
+- dec31_reference_date MUST be null
+- DO NOT put the Dec 31 value into value_eur_dec31 - that is WRONG
+- The field name "value_eur_jan1" means "value for the Jan 1 reference date", and this Dec 31 value is being used as a proxy for Jan 1
+
+Document:
+{doc_text}
+
+Return JSON in this EXACT format:
+{{
+  "document_date_range": {{
+    "start_date": "YYYY-MM-DD" or null,
+    "end_date": "YYYY-MM-DD" or null
+  }},
+  "box3_items": [
+    {{
+      "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
+      "value_eur_jan1": <value in original currency from 31-Dec of previous year>,
+      "value_eur_dec31": null,
+      "original_value": <same as value_eur_jan1>,
+      "original_currency": "USD" or "EUR" or other currency code,
+      "realized_gains_eur": <number or null, typically only for investments>,
+      "realized_losses_eur": <number or null, typically only for investments>,
+      "reference_date": "YYYY-MM-DD" (the actual Dec 31 date shown, e.g., "2023-12-31"),
+      "dec31_reference_date": null,
+      "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
+      "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
+      "extraction_confidence": <0.0 to 1.0>
+    }}
+  ]
+}}
+
+Example: December 2023 statement (for tax year 2024) showing:
+- Cash: $2,000 on 31-Dec-2023
+- Stocks: $100,000 on 31-Dec-2023
+→ CORRECT extraction:
+  * Cash item: value_eur_jan1=2000, value_eur_dec31=null, reference_date="2023-12-31", dec31_reference_date=null
+  * Stocks item: value_eur_jan1=100000, value_eur_dec31=null, reference_date="2023-12-31", dec31_reference_date=null
+→ WRONG extraction (DO NOT DO THIS):
+  * Cash item: value_eur_jan1=null, value_eur_dec31=2000, reference_date="2024-01-01", dec31_reference_date="2023-12-31" (Dec 31 value should go to value_eur_jan1, not value_eur_dec31!)
+
+If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
+"""
+
+
 def _get_full_year_prompt(doc_text: str) -> str:
     """Generate prompt for full year statements."""
     return f"""You are a specialized brokerage statement parser for Dutch tax purposes.
@@ -284,6 +361,8 @@ def us_broker_parser_agent(input_data: dict) -> dict:
         prompt = _get_jan_period_prompt(doc_text)
     elif statement_subtype == "dec_period":
         prompt = _get_dec_period_prompt(doc_text)
+    elif statement_subtype == "dec_prev_year":
+        prompt = _get_dec_prev_year_prompt(doc_text)
     elif statement_subtype == "full_year":
         prompt = _get_full_year_prompt(doc_text)
     else:
