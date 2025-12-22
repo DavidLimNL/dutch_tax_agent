@@ -9,8 +9,8 @@ from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
 from dutch_tax_agent.ingestion.recognizers import (
+    AddressRecognizer,
     BsnRecognizer,
-    DutchAddressRecognizer,
     DutchDOBRecognizer,
     DutchIBANRecognizer,
     NameRecognizer,
@@ -33,7 +33,7 @@ class PIIScrubber:
         self.analyzer.registry.add_recognizer(BsnRecognizer())
         self.analyzer.registry.add_recognizer(DutchIBANRecognizer())
         self.analyzer.registry.add_recognizer(DutchDOBRecognizer())
-        self.analyzer.registry.add_recognizer(DutchAddressRecognizer())
+        self.analyzer.registry.add_recognizer(AddressRecognizer())
         self.analyzer.registry.add_recognizer(NameRecognizer())
 
         logger.info("Initialized PII scrubber with custom Dutch recognizers")
@@ -65,11 +65,8 @@ class PIIScrubber:
             "NL_IBAN",  # Custom Dutch IBAN recognizer
             "NL_DATE_OF_BIRTH",  # Custom Dutch DOB recognizer
             "NL_ADDRESS",  # Custom Dutch address recognizer (postal codes, streets, cities)
-            "PERSON_NAME",  # Custom name recognizer from pii_names.json
-            "PERSON",  # Built-in person name detector (English) - kept as fallback
+            "PERSON_NAME",  # Custom name recognizer from pii_names.json only
             "EMAIL_ADDRESS",  # Built-in email detector (English)
-            "PHONE_NUMBER",  # Built-in phone detector (English)
-            "LOCATION",  # Built-in location/address detector (English)
         ]
 
         operators = {
@@ -82,23 +79,20 @@ class PIIScrubber:
                 "replace", {"new_value": "<ADDRESS_REDACTED>"}
             ),
             "PERSON_NAME": OperatorConfig("replace", {"new_value": "<NAME_REDACTED>"}),
-            "PERSON": OperatorConfig("replace", {"new_value": "<NAME_REDACTED>"}),
             "EMAIL_ADDRESS": OperatorConfig(
                 "replace", {"new_value": "<EMAIL_REDACTED>"}
             ),
-            "PHONE_NUMBER": OperatorConfig(
-                "replace", {"new_value": "<PHONE_REDACTED>"}
-            ),
-            "LOCATION": OperatorConfig("replace", {"new_value": "<ADDRESS_REDACTED>"}),
         }
 
         # Pass 1: Scrub normal text for PII entities
         # Using "en" as base language (English recognizers are available)
         # Custom Dutch recognizers (BSN, IBAN, DOB) work with "en" language setting
+        # score_threshold=0.75 to reduce false positives (only high-confidence matches)
         normal_results = self.analyzer.analyze(
             text=text,
             language="en",
             entities=entities,
+            score_threshold=0.75,
         )
 
         # Track all detected entity types for logging
@@ -118,6 +112,7 @@ class PIIScrubber:
             text=reversed_scrubbed_text,
             language="en",
             entities=entities,
+            score_threshold=0.75,
         )
 
         # Track entity types from reversed pass

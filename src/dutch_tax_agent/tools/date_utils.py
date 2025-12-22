@@ -94,34 +94,66 @@ def check_document_has_required_dates(
     
     start_date, end_date = doc_date_range
     
+    # If both dates are None, we can't determine the range
+    if start_date is None and end_date is None:
+        return (False, False, "Document date range could not be determined")
+    
     jan1_target = date(tax_year, 1, 1)
     dec31_target = date(tax_year, 12, 31)
     
     # Check if Jan 1 is within the document range (with tolerance)
     jan1_min = jan1_target - timedelta(days=max_days_offset)
     jan1_max = jan1_target + timedelta(days=max_days_offset)
-    has_jan1 = jan1_min <= start_date <= jan1_max or jan1_min <= end_date <= jan1_max or \
-               (start_date <= jan1_min and end_date >= jan1_max)
+    
+    # Only compare dates that are not None
+    has_jan1 = False
+    if start_date is not None:
+        has_jan1 = has_jan1 or (jan1_min <= start_date <= jan1_max)
+    if end_date is not None:
+        has_jan1 = has_jan1 or (jan1_min <= end_date <= jan1_max)
+    if start_date is not None and end_date is not None:
+        has_jan1 = has_jan1 or (start_date <= jan1_min and end_date >= jan1_max)
     
     # Check if Dec 31 is within the document range (with tolerance)
     dec31_min = dec31_target - timedelta(days=max_days_offset)
     dec31_max = dec31_target + timedelta(days=max_days_offset)
-    has_dec31 = dec31_min <= start_date <= dec31_max or dec31_min <= end_date <= dec31_max or \
-                (start_date <= dec31_min and end_date >= dec31_max)
+    
+    # Only compare dates that are not None
+    has_dec31 = False
+    if start_date is not None:
+        has_dec31 = has_dec31 or (dec31_min <= start_date <= dec31_max)
+    if end_date is not None:
+        has_dec31 = has_dec31 or (dec31_min <= end_date <= dec31_max)
+    if start_date is not None and end_date is not None:
+        has_dec31 = has_dec31 or (start_date <= dec31_min and end_date >= dec31_max)
     
     warning = None
-    if has_jan1 and start_date != jan1_target and end_date != jan1_target:
-        days_off = min(abs((start_date - jan1_target).days), abs((end_date - jan1_target).days))
-        if days_off > 0:
-            warning = f"Jan 1 value found {days_off} days from target date"
+    if has_jan1:
+        # Calculate days off only for dates that are not None
+        days_off_list = []
+        if start_date is not None and start_date != jan1_target:
+            days_off_list.append(abs((start_date - jan1_target).days))
+        if end_date is not None and end_date != jan1_target:
+            days_off_list.append(abs((end_date - jan1_target).days))
+        if days_off_list:
+            days_off = min(days_off_list)
+            if days_off > 0:
+                warning = f"Jan 1 value found {days_off} days from target date"
     
-    if has_dec31 and start_date != dec31_target and end_date != dec31_target:
-        days_off = min(abs((start_date - dec31_target).days), abs((end_date - dec31_target).days))
-        if days_off > 0:
-            if warning:
-                warning += f"; Dec 31 value found {days_off} days from target date"
-            else:
-                warning = f"Dec 31 value found {days_off} days from target date"
+    if has_dec31:
+        # Calculate days off only for dates that are not None
+        days_off_list = []
+        if start_date is not None and start_date != dec31_target:
+            days_off_list.append(abs((start_date - dec31_target).days))
+        if end_date is not None and end_date != dec31_target:
+            days_off_list.append(abs((end_date - dec31_target).days))
+        if days_off_list:
+            days_off = min(days_off_list)
+            if days_off > 0:
+                if warning:
+                    warning += f"; Dec 31 value found {days_off} days from target date"
+                else:
+                    warning = f"Dec 31 value found {days_off} days from target date"
     
     return (has_jan1, has_dec31, warning)
 

@@ -74,6 +74,7 @@ secrets/
 
 # PII Configuration (sensitive)
 src/dutch_tax_agent/data/pii_names.json
+src/dutch_tax_agent/data/pii_addresses.json
 
 # Document uploads (sensitive)
 uploads/

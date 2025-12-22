@@ -36,7 +36,36 @@ uv sync
 uv sync --reinstall
 ```
 
-## Step 3: Prepare Your Documents
+## Step 3: Configure PII Scrubbing
+
+Before processing documents, you must configure which names and addresses to scrub. **This data never leaves your local machine and is never shared with LLMs or external services.**
+
+### Configure Names
+
+```bash
+# Copy the example template
+cp src/dutch_tax_agent/data/pii_names.json.example src/dutch_tax_agent/data/pii_names.json
+
+# Edit with your actual names
+# See docs/README.md for format details
+```
+
+### Configure Addresses
+
+```bash
+# Copy the example template
+cp src/dutch_tax_agent/data/pii_addresses.json.example src/dutch_tax_agent/data/pii_addresses.json
+
+# Edit with your actual addresses
+# See docs/README.md for format details
+```
+
+**⚠️ Security Note**: 
+- Never commit `pii_names.json` or `pii_addresses.json` to git. They contain sensitive PII.
+- These files are processed **only on your local machine** and are never sent to LLMs or external services.
+- Addresses are only scrubbed if explicitly listed in `pii_addresses.json` (whitelist approach to prevent false positives).
+
+## Step 4: Prepare Your Documents
 
 Place your PDF tax documents in the `sample_docs/` directory:
 
@@ -51,7 +80,7 @@ sample_docs/
 
 **⚠️ Security Note**: Never commit real financial documents to git. The `sample_docs/` directory is gitignored.
 
-## Step 4: Run the Agent
+## Step 5: Run the Agent
 
 ### Option A: Using the CLI
 
@@ -100,7 +129,7 @@ print(f"Box 1 Total: €{result.box1_total_income:,.2f}")
 print(f"Box 3 Total: €{result.box3_total_assets_jan1:,.2f}")
 ```
 
-## Step 5: Understanding the Output
+## Step 6: Understanding the Output
 
 The agent will display:
 

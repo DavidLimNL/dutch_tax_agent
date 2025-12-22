@@ -194,6 +194,7 @@ dutch_tax_agent/
 
 - **No PII in LLM**: BSN (including "citizen service number"), names, IBANs, addresses, phone numbers, and emails are scrubbed using Presidio before any LLM call
 - **Zero-Trust Enforcement**: Documents that fail PII scrubbing are excluded from processing (not passed through with unredacted PII)
+- **100% Local Processing**: All PII configuration files (names, addresses) are stored locally and **never leave your machine**. This data is never sent to LLMs, APIs, or any external services.
 - **Custom 11-proef**: Validates Dutch BSN using official checksum algorithm
 - **Custom Name Recognition**: Configurable name scrubbing from `pii_names.json` that handles:
   - Full names (with/without spaces, concatenated)
@@ -201,12 +202,20 @@ dutch_tax_agent/
   - Individual name parts
   - **Reversed/inverted names** (e.g., "JOHNDOE" → "EODNHOJ")
   - Case-insensitive matching
+- **Custom Address Recognition**: Configurable address scrubbing from `pii_addresses.json` that handles:
+  - Full addresses (street, number, postal code, city, country)
+  - Separate street and number fields for flexible matching
+  - Multiple city names (Dutch/English variations, e.g., "DEN HAAG" / "THE HAGUE")
+  - Multiple country names (e.g., "NETHERLANDS" / "THE NETHERLANDS" / "NEDERLAND")
+  - Postal codes with/without spaces (e.g., "1234AB" / "1234 AB")
+  - Reversed/inverted addresses
+  - Case-insensitive matching
 - **Audit Trail**: Every extraction is linked to `source_doc_id` and page number
 - **Deterministic Math**: Currency conversion and tax calculations use Python tools only
 
 ### Setting Up PII Name Recognition
 
-The system uses a configuration file to recognize and scrub personal names. **This file is gitignored for security reasons.**
+The system uses a configuration file to recognize and scrub personal names. **This file is gitignored for security reasons and never leaves your local machine.**
 
 1. Copy the example template:
    ```bash
@@ -234,7 +243,48 @@ The system uses a configuration file to recognize and scrub personal names. **Th
    - "JOHN" or "DOE" (individual parts)
    - All case variations
 
-**⚠️ Important**: Never commit `pii_names.json` to git. It contains sensitive PII.
+**⚠️ Important**: 
+- Never commit `pii_names.json` to git. It contains sensitive PII.
+- This file is processed **only on your local machine** and is never shared with LLMs or external services.
+
+### Setting Up PII Address Recognition
+
+The system uses a configuration file to recognize and scrub addresses. **This file is gitignored for security reasons and never leaves your local machine.** You must add your addresses to this file for them to be scrubbed.
+
+1. Copy the example template:
+   ```bash
+   cp src/dutch_tax_agent/data/pii_addresses.json.example src/dutch_tax_agent/data/pii_addresses.json
+   ```
+
+2. Edit `pii_addresses.json` with your actual address(es):
+   ```json
+   {
+     "addresses": [
+       {
+         "street": "KALVERSTRAAT",
+         "number": "123",
+         "postal_code": "1234AB",
+         "city": ["DEN HAAG", "THE HAGUE"],
+         "country": ["NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"],
+         "full_address": "KALVERSTRAAT 123 1234 AB DEN HAAG"
+       }
+     ]
+   }
+   ```
+
+3. The recognizer will automatically detect all variations including:
+   - Street + number: "KALVERSTRAAT 123" or "KALVERSTRAAT123"
+   - Postal codes: "1234AB" or "1234 AB"
+   - City variations: "DEN HAAG" or "THE HAGUE"
+   - Country variations: "NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"
+   - Full address combinations
+   - Reversed/inverted addresses
+   - All case variations
+
+**⚠️ Important**: 
+- Never commit `pii_addresses.json` to git. It contains sensitive PII.
+- This file is processed **only on your local machine** and is never shared with LLMs or external services.
+- **Addresses are only scrubbed if they are explicitly listed in this file.** Generic address detection is disabled to prevent false positives.
 
 ## 📊 Box 3 Wealth Tax Logic
 

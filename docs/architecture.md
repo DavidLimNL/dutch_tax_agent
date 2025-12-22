@@ -62,14 +62,12 @@ graph TD
    - **NL_BSN**: Dutch BSN (Burgerservicenummer), including "citizen service number"
    - **NL_IBAN**: Dutch IBAN numbers
    - **NL_DATE_OF_BIRTH**: Dutch date formats
-   - **NL_ADDRESS**: Dutch addresses (postal codes, streets, cities)
+   - **NL_ADDRESS**: Custom address recognizer from `pii_addresses.json` (whitelist approach - only scrubs addresses explicitly listed in config file)
    - **PERSON_NAME**: Custom name recognizer from `pii_names.json` (handles full names, concatenated, reversed/inverted, and case variations)
-   - **PERSON**: Person names (English recognizer, fallback)
    - **EMAIL_ADDRESS**: Email addresses
-   - **PHONE_NUMBER**: Phone numbers
-   - **LOCATION**: Addresses and locations
 4. **Zero-Trust Policy**: Documents that fail scrubbing are **excluded** (not passed through with PII)
-5. Output: List of `ScrubbedDocument` objects (only successfully scrubbed documents)
+5. **100% Local Processing**: All PII configuration files (`pii_names.json`, `pii_addresses.json`) are stored locally and **never leave your machine**. This data is never sent to LLMs, APIs, or any external services.
+6. Output: List of `ScrubbedDocument` objects (only successfully scrubbed documents)
 
 ### Phase 2: LangGraph Map-Reduce
 1. **Dispatcher** classifies documents and returns `Command` with:

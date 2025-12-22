@@ -50,10 +50,11 @@ class DutchAddressRecognizer(PatternRecognizer):
             # Reversed patterns (for when entire text is reversed)
             # Postal code anywhere in text (not just at word boundary start)
             # Matches postal codes embedded in text (e.g., "1081LA" in "AMSTERDAM1081LA")
+            # Increased threshold to reduce false positives with account numbers
             Pattern(
                 name="dutch_postal_code_anywhere",
                 regex=r"\d{4}[A-Z]{2}",
-                score=0.75,
+                score=0.85,  # Increased from 0.75 to reduce false positives
             ),
             # City + postal code (reversed: city name followed by postal code)
             # Matches "AMSTERDAM1081LA" or "ROTTERDAM1234AB"
@@ -106,13 +107,18 @@ class DutchAddressRecognizer(PatternRecognizer):
         if len(text) > 100:
             return False
         
+        # Reject patterns that are only digits and hyphens (likely account numbers, not addresses)
+        # Valid addresses must contain letters (for postal codes or street names)
+        if re.match(r"^[\d\s\-\.]+$", text):
+            return False
+        
         # Check for Dutch postal code pattern (4 digits + 2 letters)
         # This handles both standalone postal codes and postal codes followed by numbers
         # Also handles postal codes embedded in text (like "AMSTERDAM1081LA")
         postal_code_match = re.search(r"(\d{4}[A-Z]{2})", text)
         if postal_code_match:
             postal_code = postal_code_match.group(1)
-            # Validate postal code format
+            # Validate postal code format - must have actual letters, not just digits
             if len(postal_code) == 6 and postal_code[:4].isdigit() and postal_code[4:].isalpha():
                 return True
         

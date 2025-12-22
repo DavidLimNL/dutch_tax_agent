@@ -40,16 +40,25 @@ Second, extract the tax year from the document. Look for:
 - Year references (e.g., "2024", "tax year 2024", "fiscal year 2024")
 - Statement periods that indicate the tax year
 
+Third, IF the document is a us_broker_statement or crypto_broker_statement, identify the statement subtype:
+- jan_period: January period statement (typically shows Dec 31 of previous year and/or Jan 31 of tax year)
+- dec_period: December period statement (typically shows Dec 31 of the tax year)
+- full_year: Full year statement (covers the entire tax year, typically shows both Jan 1 and Dec 31 values)
+- null: If it's not a broker statement, or if the subtype cannot be determined
+
 Document text (first 1000 chars):
 {doc_text[:1000]}
 
-Respond with THREE values separated by commas:
+Respond with FOUR values separated by commas:
 1. Category name
 2. Confidence (0-1)
 3. Tax year (as integer, or "null" if not found/unclear)
+4. Statement subtype (jan_period, dec_period, full_year, or "null" if not applicable/unclear)
 
-Example: dutch_bank_statement,0.95,2024
-Example if year unclear: us_broker_statement,0.90,null
+Example: dutch_bank_statement,0.95,2024,null
+Example: us_broker_statement,0.90,2024,dec_period
+Example: crypto_broker_statement,0.85,2024,jan_period
+Example if year unclear: us_broker_statement,0.90,null,full_year
 """
 
     try:
@@ -100,9 +109,28 @@ Example if year unclear: us_broker_statement,0.90,null
                     )
                     tax_year = None
 
+        # Extract statement subtype if provided (only relevant for broker statements)
+        statement_subtype = None
+        if len(parts) > 3:
+            subtype_str = parts[3].strip().lower()
+            if subtype_str not in ["null", "none", ""]:
+                if subtype_str in ["jan_period", "dec_period", "full_year"]:
+                    # Only set subtype for broker statements
+                    if doc_type in ["us_broker_statement", "crypto_broker_statement"]:
+                        statement_subtype = subtype_str  # type: ignore
+                    else:
+                        logger.debug(
+                            f"Subtype {subtype_str} provided for non-broker document {doc_id}, ignoring"
+                        )
+                else:
+                    logger.warning(
+                        f"Unknown statement subtype '{subtype_str}' for {doc_id}. "
+                        f"Expected: jan_period, dec_period, full_year, or null"
+                    )
+
         logger.info(
             f"Classified doc {doc_id} as {doc_type} "
-            f"(confidence: {confidence}, tax_year: {tax_year})"
+            f"(confidence: {confidence}, tax_year: {tax_year}, subtype: {statement_subtype})"
         )
 
         return DocumentClassification(
@@ -111,6 +139,7 @@ Example if year unclear: us_broker_statement,0.90,null
             confidence=confidence,
             reasoning="Classified based on document content analysis",
             tax_year=tax_year,
+            statement_subtype=statement_subtype,
         )
 
     except Exception as e:

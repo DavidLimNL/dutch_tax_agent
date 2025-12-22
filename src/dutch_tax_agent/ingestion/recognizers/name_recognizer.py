@@ -127,25 +127,25 @@ class NameRecognizer(PatternRecognizer):
                 )
             )
             
-            # Pattern 5: First name only (lower confidence, might have false positives)
+            # Pattern 5: First name only (increased threshold to reduce false positives)
             # Matches: "JOHN", "John"
             first_pattern = r"(?i)\b" + self._escape_regex(first) + r"\b"
             patterns.append(
                 Pattern(
                     name=f"first_name_{first}",
                     regex=first_pattern,
-                    score=0.60,  # Lower confidence for first name alone
+                    score=0.80,  # Increased from 0.60 to reduce false positives
                 )
             )
             
-            # Pattern 6: Last name only (lower confidence)
+            # Pattern 6: Last name only (increased threshold to reduce false positives)
             # Matches: "DOE", "Doe"
             last_pattern = r"(?i)\b" + self._escape_regex(last) + r"\b"
             patterns.append(
                 Pattern(
                     name=f"last_name_{last}",
                     regex=last_pattern,
-                    score=0.60,  # Lower confidence for last name alone
+                    score=0.80,  # Increased from 0.60 to reduce false positives
                 )
             )
             
