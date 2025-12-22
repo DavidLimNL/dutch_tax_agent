@@ -43,8 +43,22 @@ PRIORITY ORDER for value_eur_jan1:
 2. SECOND: If 1-Jan is not available, use 31-Dec of the previous year (e.g., 31-Dec-2023)
 3. NEVER: Use 31-Jan value - that is WRONG and too far from the Jan 1 reference date
 
+⚠️ CRITICAL BALANCE SHEET COLUMN SELECTION ⚠️:
+When you see a BALANCE SHEET or similar table with multiple date columns, you MUST:
+- ✅ USE the "Last Period" column (often labeled "Last Period", "Previous Period", "Beginning", "as of 12/31/23", "as of 31-Dec-2023")
+- ✅ USE values from dates like "12/31/23", "31-Dec-2023", "12/31/2023", or any December 31st date from the PREVIOUS year
+- ❌ DO NOT USE the "This Period" column (often labeled "This Period", "Current Period", "Ending", "as of 1/31/24", "as of 31-Jan-2024")
+- ❌ DO NOT USE values from dates like "1/31/24", "31-Jan-2024", "1/31/2024", or any January 31st date from the CURRENT year
+
+Example: If you see a balance sheet like:
+  "Last Period (as of 12/31/23) | This Period (as of 1/31/24)"
+  "Cash: $X,XXX.XX | $Y,YYY.YY"
+  "Stocks: $XXX,XXX.XX | $YYY,YYY.YY"
+→ CORRECT: Extract values from the "Last Period" column (the left column with 12/31/23 date)
+→ WRONG: Do NOT extract values from the "This Period" column (the right column with 1/31/24 date)
+
 Rules:
-- value_eur_jan1 MUST be set to the 1-Jan value if available, otherwise use the 31-Dec (previous year) value
+- value_eur_jan1 MUST be set to the 1-Jan value if available, otherwise use the 31-Dec (previous year) value from the "Last Period" column
 - value_eur_dec31 MUST be set to null (we don't have Dec 31 of the tax year yet)
 - reference_date MUST be "2024-01-01" if using 1-Jan value, or "2023-12-31" (or the actual 31-Dec date shown) if using Dec 31 value
 - dec31_reference_date MUST be null
@@ -85,6 +99,13 @@ Examples:
 - If cash shows $4,500 on 31-Dec-2023 and $5,200 on 31-Jan-2024, but NO 1-Jan value:
   → CORRECT: value_eur_jan1=4500, value_eur_dec31=null, reference_date="2023-12-31" (fallback to Dec 31)
   → WRONG: value_eur_jan1=5200, value_eur_dec31=4500 (never use 31-Jan value!)
+- Balance sheet example with "Last Period" and "This Period" columns:
+  Balance sheet shows:
+    "Last Period (as of 12/31/23) | This Period (as of 1/31/24)"
+    "Cash, BDP, MMFs: $X,XXX.XX | $Y,YYY.YY"
+    "Stocks: $XXX,XXX.XX | $YYY,YYY.YY"
+  → CORRECT: Extract values from the "Last Period" column (left column with 12/31/23 date)
+  → WRONG: Do NOT extract values from the "This Period" column (right column with 1/31/24 date)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
