@@ -47,14 +47,27 @@ Second, extract the tax year from the document. Look for:
 
 Third, IF the document is a us_broker_statement or crypto_broker_statement, identify the statement subtype:
 - jan_period: January period statement (typically shows Dec 31 of previous year and/or Jan 31 of tax year)
-- dec_period: December period statement of the TAX YEAR (e.g., Dec 2024 for tax year 2024, shows Dec 31 of the tax year)
+- dec_period: December period statement of the TAX YEAR (e.g., Dec 2024 for tax year 2024, shows Dec 31 of the tax year) - this is a MONTHLY statement, not a yearly/annual statement
 - dec_prev_year: December period statement of the PREVIOUS YEAR (e.g., Dec 2023 for tax year 2024, shows Dec 31 of the previous year - this should be used as Jan 1 value)
-- full_year: Full year statement (covers the entire tax year, typically shows both Jan 1 and Dec 31 values)
+- full_year: Full year statement (covers the entire tax year or the period the account existed during the tax year). This includes:
+  * Annual/yearly statements that show both Jan 1 and Dec 31 values
+  * Annual/yearly statements that start mid-year (e.g., account opened in July) and end Dec 31 - these are still full_year statements, not dec_period
+  * Statements labeled as "Year to Date", "Annual Statement", "Year End", or covering multiple months
+  * Statements that show a date range spanning from account opening (mid-year) to Dec 31
 - null: If it's not a broker statement, or if the subtype cannot be determined
+
+IMPORTANT: To distinguish between dec_period and full_year:
+- dec_period is a MONTHLY December statement (covers only December, typically labeled as "December 2024" or "Dec 2024")
+- full_year is an ANNUAL/YEARLY statement that may:
+  * Cover the full calendar year (Jan 1 to Dec 31)
+  * Cover a partial year from account opening (e.g., July 1) to Dec 31 - this is still a full_year statement
+  * Be labeled as "Annual", "Year to Date", "Year End", or similar
+  * Show a date range spanning multiple months (especially if it goes from mid-year to Dec 31)
+- If a statement shows Dec 31 but starts mid-year (e.g., account opened in July), it's full_year, NOT dec_period
 
 IMPORTANT: To distinguish between dec_period and dec_prev_year:
 - Look at the dates in the document and compare them to the tax year being processed
-- If the document shows Dec 31 of the tax year (e.g., 2024-12-31 for tax year 2024), use dec_period
+- If the document shows Dec 31 of the tax year (e.g., 2024-12-31 for tax year 2024), use dec_period (if monthly) or full_year (if annual)
 - If the document shows Dec 31 of the previous year (e.g., 2023-12-31 for tax year 2024), use dec_prev_year
 - If the tax year is unclear, check the document dates: if it's clearly from the previous year (e.g., "December 2023" statement when processing tax year 2024), use dec_prev_year
 {tax_year_context}

@@ -266,9 +266,10 @@ def _get_full_year_prompt(doc_text: str) -> str:
 
 Extract Box 3 wealth data from a FULL YEAR brokerage statement.
 
-This is a full year statement that shows:
-- Both Jan 1 (or close to it) and Dec 31 (or close to it) values
-- Extract BOTH value_eur_jan1 and value_eur_dec31 when available
+This is a full year statement that may show:
+- Both Jan 1 (or close to it) and Dec 31 (or close to it) values - extract BOTH when available
+- OR only Dec 31 values if the account was opened mid-year (e.g., account opened in July, statement covers July to Dec 31)
+- For accounts opened mid-year: the statement is still a full_year statement, but there will be no Jan 1 data (account didn't exist then)
 
 CRITICAL: Brokerages ALWAYS have TWO separate account types:
 1. CASH/Savings account (cash balance, fiat currency, money market funds, uninvested cash) - use asset_type="savings"
@@ -288,6 +289,11 @@ IMPORTANT DATE MAPPING:
 - If document shows data for 1-Jan-20XX, set value_eur_jan1 and reference_date="20XX-01-01"
 - If document shows data for 31-Dec-20XX, set value_eur_dec31 and dec31_reference_date="20XX-12-31"
 - If document shows data for dates close to Jan 1 or Dec 31 (within 3 days, accounting for weekends/holidays), use those dates
+- If account was opened mid-year (e.g., July 1, 2024) and statement shows account opening date to Dec 31:
+  * value_eur_jan1 should be null (account didn't exist on Jan 1)
+  * value_eur_dec31 should be set to the Dec 31 value shown
+  * reference_date should be set to the account opening date (e.g., "2024-07-01") or the earliest date shown in the statement
+  * dec31_reference_date should be "20XX-12-31"
 - If document only has one of these dates, that's fine - set the other to null
 - For original_value, use value_eur_jan1 if available, otherwise use value_eur_dec31
 
@@ -321,8 +327,10 @@ Return JSON in this EXACT format:
 Examples:
 - Full year statement showing $10,000 cash and $50,000 in stocks on both Jan 1 and Dec 31:
   → TWO items (savings=$10k, stocks=$50k, both with value_eur_jan1 and value_eur_dec31 set)
-- Full year statement showing only Dec 31 values:
+- Full year statement showing only Dec 31 values (account existed all year):
   → TWO items (savings and stocks, both with value_eur_jan1=null, value_eur_dec31 set)
+- Full year statement for account opened mid-year (e.g., July 1, 2024) showing Dec 31 values:
+  → TWO items (savings and stocks, both with value_eur_jan1=null, value_eur_dec31 set, reference_date="2024-07-01" or account opening date)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
