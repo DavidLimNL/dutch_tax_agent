@@ -17,20 +17,57 @@ from dutch_tax_agent.graph import create_tax_graph
 from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
 from dutch_tax_agent.schemas.state import TaxGraphState
 
+# Suppress all Presidio logging BEFORE basicConfig to prevent any output
+# Use NullHandler to completely silence Presidio loggers
+_null_handler = logging.NullHandler()
+_presidio_loggers = [
+    "presidio_analyzer",
+    "presidio_anonymizer",
+    "presidio_analyzer.analyzer_engine",
+    "presidio_analyzer.nlp_engine_provider",
+    "presidio_analyzer.entity_recognizer",
+    "presidio_analyzer.recognizers_loader_utils",
+]
+for logger_name in _presidio_loggers:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.CRITICAL)
+    logger.addHandler(_null_handler)
+    logger.propagate = False
+
+# Create a filter to suppress Presidio log messages
+class PresidioFilter(logging.Filter):
+    """Filter out all Presidio-related log messages."""
+    def filter(self, record):
+        # Check if the logger name contains presidio
+        if "presidio" in record.name.lower():
+            return False
+        # Check the module path in the record
+        if hasattr(record, "pathname") and "presidio" in record.pathname.lower():
+            return False
+        # Check the filename (e.g., analyzer_engine.py, entity_recognizer.py, etc.)
+        presidio_files = [
+            "analyzer_engine.py",
+            "nlp_engine_provider.py",
+            "entity_recognizer.py",
+            "recognizers_loader_utils.py",
+        ]
+        if hasattr(record, "filename"):
+            if any(fname in record.filename for fname in presidio_files):
+                return False
+        return True
+
 # Setup logging
 console = Console()
+rich_handler = RichHandler(rich_tracebacks=True, console=console)
+presidio_filter = PresidioFilter()
+rich_handler.addFilter(presidio_filter)
 logging.basicConfig(
     level=settings.log_level,
     format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True, console=console)],
+    handlers=[rich_handler],
 )
-
-# Suppress verbose Presidio logging
-logging.getLogger("presidio_analyzer").setLevel(logging.WARNING)
-logging.getLogger("presidio_anonymizer").setLevel(logging.WARNING)
-# Suppress specific Presidio internal loggers that generate INFO/WARNING messages
-logging.getLogger("presidio_analyzer.entity_recognizer").setLevel(logging.ERROR)
-logging.getLogger("presidio_analyzer.recognizers_loader_utils").setLevel(logging.ERROR)
+# Also add filter to root logger to catch any messages
+logging.getLogger().addFilter(presidio_filter)
 
 logger = logging.getLogger(__name__)
 

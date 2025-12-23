@@ -4,6 +4,22 @@ import logging
 import uuid
 from typing import Optional
 
+# Suppress Presidio logging before importing - use NullHandler to completely silence
+_null_handler = logging.NullHandler()
+_presidio_loggers = [
+    "presidio_analyzer",
+    "presidio_anonymizer",
+    "presidio_analyzer.analyzer_engine",
+    "presidio_analyzer.nlp_engine_provider",
+    "presidio_analyzer.entity_recognizer",
+    "presidio_analyzer.recognizers_loader_utils",
+]
+for logger_name in _presidio_loggers:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.CRITICAL)
+    logger.addHandler(_null_handler)
+    logger.propagate = False
+
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
