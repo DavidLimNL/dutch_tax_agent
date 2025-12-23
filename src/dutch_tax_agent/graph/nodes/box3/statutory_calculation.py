@@ -40,8 +40,11 @@ def _calculate_legacy_2022(
     """Calculate 2022 tax using the old bracket-based mix method."""
     tax_free_allowance = rates["tax_free_allowance"] * (2 if fiscal_partners else 1)
     
-    total_assets = sum(a.value_eur_jan1 for a in assets)
-    total_debts = sum(a.value_eur_jan1 for a in assets if a.asset_type == "debt")
+    # Exclude mortgages and debts from total_assets (they're liabilities, not assets)
+    total_assets = sum(a.value_eur_jan1 for a in assets if a.asset_type not in ["mortgage", "debt"])
+    # TODO: Mortgages and debts are extracted separately but not yet included in calculations
+    # Mortgages (asset_type="mortgage") and other debts (asset_type="debt") are handled differently by tax office
+    total_debts = 0.0
     
     net_wealth = total_assets - total_debts
     taxable_wealth = max(0, net_wealth - tax_free_allowance)
@@ -113,12 +116,13 @@ def _calculate_savings_variant(
     # Category III (Debts): Mortgage on 2nd home, student loans, consumer credit
     # Note: Primary residence mortgage is Box 1, not Box 3
     
-    cat_savings = sum(a.value_eur_jan1 for a in assets if a.asset_type == "savings")
+    cat_savings = sum(a.value_eur_jan1 for a in assets if a.asset_type in ["savings", "checking"])
     cat_other = sum(a.value_eur_jan1 for a in assets if a.asset_type in ["stocks", "bonds", "crypto", "property", "other"])
     
-    # Debts: Currently assumed to be €0
-    # If debts need to be added later, they would be Category III
-    # (mortgage on 2nd home only - primary residence is Box 1)
+    # Debts: Category III (mortgage on 2nd home, credit cards, etc.)
+    # Note: Primary residence mortgage is Box 1, not Box 3
+    # TODO: Mortgages and debts are extracted separately but not yet included in calculations
+    # Mortgages (asset_type="mortgage") and other debts (asset_type="debt") are handled differently by tax office
     cat_debts = 0.0 
     
     debt_threshold = sv_rates["debt_threshold"] * (2 if fiscal_partners else 1)

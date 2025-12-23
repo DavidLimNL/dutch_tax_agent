@@ -636,7 +636,7 @@ def investment_broker_parser_agent(input_data: dict) -> dict:
 
         # Post-processing: Ensure both cash (savings) and investment (stocks/crypto) accounts are present
         # If one is missing, add it with 0 value
-        has_cash = any(item.get("asset_type") == "savings" for item in box3_items)
+        has_cash = any(item.get("asset_type") in ["savings", "checking"] for item in box3_items)
         has_investment = any(
             item.get("asset_type") in ["stocks", "bonds", "crypto", "other"]
             for item in box3_items

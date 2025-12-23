@@ -38,8 +38,11 @@ def calculate_actual_return(
     rates = all_rates[str(tax_year)]
 
     # Calculate total wealth (Jan 1)
-    total_assets = sum(asset.value_eur_jan1 for asset in assets)
-    total_debts = 0.0 # TODO: Handle debts if present
+    # Exclude mortgages and debts from total_assets (they're liabilities, not assets)
+    total_assets = sum(asset.value_eur_jan1 for asset in assets if asset.asset_type not in ["mortgage", "debt"])
+    # TODO: Mortgages and debts are extracted separately but not yet included in calculations
+    # Mortgages (asset_type="mortgage") and other debts (asset_type="debt") are handled differently by tax office
+    total_debts = 0.0
     net_wealth = total_assets - total_debts
 
     # Calculate Actual Return components

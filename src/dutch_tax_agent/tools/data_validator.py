@@ -191,12 +191,17 @@ class DataValidator:
             ValidationError: If validation fails
         """
         try:
+            # Check if this is a liability (mortgage or debt) - these can have negative values
+            asset_type = data.get("asset_type", "other")
+            is_liability = asset_type in ["mortgage", "debt"]
+            
             # Validate Jan 1 value (can be None if document only has Dec 31)
             value_eur_jan1 = None
             if data.get("value_eur_jan1") is not None:
                 value_eur_jan1 = DataValidator.validate_amount(
                     data["value_eur_jan1"],
                     "value_eur_jan1",
+                    allow_negative=is_liability,
                 )
             
             # Validate Dec 31 value (can be None if document only has Jan 1)
@@ -205,6 +210,7 @@ class DataValidator:
                 value_eur_dec31 = DataValidator.validate_amount(
                     data["value_eur_dec31"],
                     "value_eur_dec31",
+                    allow_negative=is_liability,
                 )
             
             # At least one value must be present

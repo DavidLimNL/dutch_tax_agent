@@ -37,9 +37,10 @@ def reducer_node(state: TaxGraphState) -> Command:
         item.gross_amount_eur for item in state.box1_income_items
     )
 
-    # Calculate Box 3 totals
+    # Calculate Box 3 totals (exclude mortgages and debts - they're liabilities, not assets)
     box3_total = sum(
         item.value_eur_jan1 for item in state.box3_asset_items
+        if item.asset_type not in ["mortgage", "debt"]
     )
 
     logger.info(

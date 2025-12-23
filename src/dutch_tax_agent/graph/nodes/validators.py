@@ -200,7 +200,7 @@ def validator_node(state: TaxGraphState) -> dict:
             # Check if this looks like a broker statement by checking if we have any items
             # and if they have descriptions that suggest broker accounts
             # Also check if we have both savings and investment types
-            has_cash = any(item.get("asset_type") == "savings" for item in box3_items)
+            has_cash = any(item.get("asset_type") in ["savings", "checking"] for item in box3_items)
             has_investment = any(
                 item.get("asset_type") in ["stocks", "bonds", "crypto", "other"]
                 for item in box3_items

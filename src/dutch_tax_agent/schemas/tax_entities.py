@@ -70,8 +70,8 @@ class Box3Asset(BaseModel):
     source_filename: str = Field(description="For audit trail")
     source_page: Optional[int] = Field(None, description="Page number in PDF")
     
-    asset_type: Literal["savings", "stocks", "bonds", "crypto", "property", "other"] = Field(
-        description="Type of Box 3 asset"
+    asset_type: Literal["savings", "checking", "stocks", "bonds", "crypto", "property", "mortgage", "debt", "other"] = Field(
+        description="Type of Box 3 asset (savings for savings accounts, checking for current/checking accounts, mortgage for mortgage balances, debt for credit cards and other debts)"
     )
     
     # Core values (normalized to EUR on Jan 1)
