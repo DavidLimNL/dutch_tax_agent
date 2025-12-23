@@ -234,6 +234,213 @@ def validator_node(state: TaxGraphState) -> dict:
         # Validate Box 3 asset items
         for asset_data in extracted_data.get("box3_items", []):
             try:
+                # Check for individual positions and sum them if present
+                individual_positions = asset_data.get("individual_positions")
+                if individual_positions and isinstance(individual_positions, list) and len(individual_positions) > 0:
+                    logger.info(
+                        f"Processing {len(individual_positions)} individual positions for "
+                        f"{asset_data.get('asset_type', 'unknown')} account in {source_filename}"
+                    )
+                    
+                    # Group positions by date and sum values
+                    jan1_positions = []
+                    dec31_positions = []
+                    other_positions = []
+                    
+                    for pos in individual_positions:
+                        if not isinstance(pos, dict):
+                            logger.warning(
+                                f"Skipping invalid position in {source_filename}: {pos}"
+                            )
+                            continue
+                        
+                        pos_date_str = pos.get("date")
+                        pos_quantity = pos.get("quantity")
+                        pos_price = pos.get("price")
+                        pos_currency = pos.get("currency", asset_data.get("original_currency", "USD"))
+                        
+                        # Calculate value from quantity × price
+                        if pos_quantity is None or pos_price is None:
+                            logger.warning(
+                                f"Position {pos.get('symbol', 'unknown')} missing quantity or price in {source_filename}. "
+                                f"quantity={pos_quantity}, price={pos_price}"
+                            )
+                            continue
+                        
+                        # Parse quantity and price
+                        if isinstance(pos_quantity, str):
+                            pos_quantity = parse_currency_string(pos_quantity)
+                        else:
+                            pos_quantity = float(pos_quantity)
+                        
+                        if isinstance(pos_price, str):
+                            pos_price = parse_currency_string(pos_price)
+                        else:
+                            pos_price = float(pos_price)
+                        
+                        # Calculate position value: quantity × price
+                        pos_value = pos_quantity * pos_price
+                        
+                        logger.debug(
+                            f"Calculated position value for {pos.get('symbol', 'unknown')}: "
+                            f"{pos_quantity} shares × {pos_price} {pos_currency} = {pos_value} {pos_currency}"
+                        )
+                        
+                        # Determine which date bucket this position belongs to
+                        if pos_date_str:
+                            try:
+                                pos_date = datetime.fromisoformat(pos_date_str).date()
+                                tax_year_jan1 = date(state.tax_year, 1, 1)
+                                tax_year_dec31 = date(state.tax_year, 12, 31)
+                                
+                                # Check if date is close to Jan 1 (within 3 days)
+                                days_from_jan1 = abs((pos_date - tax_year_jan1).days)
+                                days_from_dec31 = abs((pos_date - tax_year_dec31).days)
+                                
+                                if days_from_jan1 <= 3:
+                                    jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                elif days_from_dec31 <= 3:
+                                    dec31_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                else:
+                                    other_positions.append((pos_value, pos_currency, pos.get("symbol"), pos_date))
+                            except (ValueError, AttributeError) as e:
+                                logger.warning(
+                                    f"Could not parse date '{pos_date_str}' for position "
+                                    f"{pos.get('symbol', 'unknown')} in {source_filename}: {e}"
+                                )
+                                # Default to Jan 1 if we can't parse the date
+                                jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                        else:
+                            # No date specified, default to Jan 1
+                            logger.warning(
+                                f"Position {pos.get('symbol', 'unknown')} missing date in {source_filename}, "
+                                f"defaulting to Jan 1"
+                            )
+                            jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                    
+                    # Sum Jan 1 positions (convert to same currency first)
+                    if jan1_positions:
+                        jan1_sum = 0.0
+                        base_currency = asset_data.get("original_currency", "USD")
+                        for pos_value, pos_currency, symbol in jan1_positions:
+                            if pos_currency != base_currency:
+                                # Convert to base currency using Jan 1 exchange rate
+                                converted_value = converter.convert(
+                                    pos_value,
+                                    pos_currency,
+                                    base_currency,
+                                    date(state.tax_year, 1, 1),
+                                )
+                                jan1_sum += converted_value
+                                logger.debug(
+                                    f"Converted {symbol} {pos_value} {pos_currency} to {converted_value} {base_currency} "
+                                    f"for Jan 1 sum"
+                                )
+                            else:
+                                jan1_sum += pos_value
+                        
+                        # If jan1_value was not set or is null, use the sum
+                        if asset_data.get("value_eur_jan1") is None:
+                            asset_data["value_eur_jan1"] = jan1_sum
+                            logger.info(
+                                f"Summed {len(jan1_positions)} individual positions for Jan 1: "
+                                f"{base_currency} {jan1_sum:,.2f} in {source_filename}"
+                            )
+                        else:
+                            # Both individual positions and combined total exist - verify they match
+                            existing_jan1 = asset_data.get("value_eur_jan1")
+                            if isinstance(existing_jan1, str):
+                                existing_jan1 = parse_currency_string(existing_jan1)
+                            else:
+                                existing_jan1 = float(existing_jan1)
+                            
+                            # Allow small discrepancy (1% or $10, whichever is larger) due to rounding
+                            discrepancy = abs(existing_jan1 - jan1_sum)
+                            threshold = max(existing_jan1 * 0.01, 10.0)
+                            
+                            # Prioritize sum value over combined total
+                            asset_data["value_eur_jan1"] = jan1_sum
+                            
+                            if discrepancy > threshold:
+                                warning_msg = (
+                                    f"Jan 1 value mismatch in {source_filename}: "
+                                    f"combined total={existing_jan1:,.2f}, "
+                                    f"sum of individual positions={jan1_sum:,.2f}, "
+                                    f"difference={discrepancy:,.2f}. Using sum of individual positions."
+                                )
+                                validation_warnings.append(warning_msg)
+                                logger.warning(warning_msg)
+                            else:
+                                logger.info(
+                                    f"Jan 1 values match: combined={existing_jan1:,.2f}, "
+                                    f"sum={jan1_sum:,.2f} in {source_filename}. Using sum of individual positions."
+                                )
+                    
+                    # Sum Dec 31 positions (convert to same currency first)
+                    if dec31_positions:
+                        dec31_sum = 0.0
+                        base_currency = asset_data.get("original_currency", "USD")
+                        for pos_value, pos_currency, symbol in dec31_positions:
+                            if pos_currency != base_currency:
+                                # Convert to base currency using Dec 31 exchange rate
+                                converted_value = converter.convert(
+                                    pos_value,
+                                    pos_currency,
+                                    base_currency,
+                                    date(state.tax_year, 12, 31),
+                                )
+                                dec31_sum += converted_value
+                                logger.debug(
+                                    f"Converted {symbol} {pos_value} {pos_currency} to {converted_value} {base_currency} "
+                                    f"for Dec 31 sum"
+                                )
+                            else:
+                                dec31_sum += pos_value
+                        
+                        # If dec31_value was not set or is null, use the sum
+                        if asset_data.get("value_eur_dec31") is None:
+                            asset_data["value_eur_dec31"] = dec31_sum
+                            logger.info(
+                                f"Summed {len(dec31_positions)} individual positions for Dec 31: "
+                                f"{base_currency} {dec31_sum:,.2f} in {source_filename}"
+                            )
+                        else:
+                            # Both individual positions and combined total exist - verify they match
+                            existing_dec31 = asset_data.get("value_eur_dec31")
+                            if isinstance(existing_dec31, str):
+                                existing_dec31 = parse_currency_string(existing_dec31)
+                            else:
+                                existing_dec31 = float(existing_dec31)
+                            
+                            # Allow small discrepancy (1% or $10, whichever is larger) due to rounding
+                            discrepancy = abs(existing_dec31 - dec31_sum)
+                            threshold = max(existing_dec31 * 0.01, 10.0)
+                            
+                            # Prioritize sum value over combined total
+                            asset_data["value_eur_dec31"] = dec31_sum
+                            
+                            if discrepancy > threshold:
+                                warning_msg = (
+                                    f"Dec 31 value mismatch in {source_filename}: "
+                                    f"combined total={existing_dec31:,.2f}, "
+                                    f"sum of individual positions={dec31_sum:,.2f}, "
+                                    f"difference={discrepancy:,.2f}. Using sum of individual positions."
+                                )
+                                validation_warnings.append(warning_msg)
+                                logger.warning(warning_msg)
+                            else:
+                                logger.info(
+                                    f"Dec 31 values match: combined={existing_dec31:,.2f}, "
+                                    f"sum={dec31_sum:,.2f} in {source_filename}. Using sum of individual positions."
+                                )
+                    
+                    # Log positions that don't match Jan 1 or Dec 31
+                    if other_positions:
+                        logger.warning(
+                            f"Found {len(other_positions)} positions with dates not matching Jan 1 or Dec 31 "
+                            f"in {source_filename}. These positions were not included in the sum."
+                        )
+                
                 # Convert currency if needed for Jan 1 value
                 jan1_value = asset_data.get("value_eur_jan1")
                 dec31_value = asset_data.get("value_eur_dec31")
@@ -293,6 +500,7 @@ def validator_node(state: TaxGraphState) -> dict:
                     asset_data["value_eur_dec31"] = dec31_value
                 
                 # Parse original_value if present (may come as string from LLM)
+                # If individual positions were summed, use the summed value
                 original_value = asset_data.get("original_value")
                 if original_value is not None:
                     if isinstance(original_value, str):
@@ -300,6 +508,13 @@ def validator_node(state: TaxGraphState) -> dict:
                     else:
                         original_value = float(original_value)
                     asset_data["original_value"] = original_value
+                elif individual_positions and (jan1_value is not None or dec31_value is not None):
+                    # If we summed individual positions but original_value wasn't set, use the summed value
+                    # Prefer jan1 if available, otherwise dec31
+                    if jan1_value is not None:
+                        asset_data["original_value"] = jan1_value
+                    elif dec31_value is not None:
+                        asset_data["original_value"] = dec31_value
                 
                 # Validate and construct Box3Asset
                 box3_asset = validator.validate_box3_asset(

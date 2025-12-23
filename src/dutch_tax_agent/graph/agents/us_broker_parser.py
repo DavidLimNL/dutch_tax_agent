@@ -33,6 +33,24 @@ These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different
 You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
 DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
 
+⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
+Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
+- Include an "individual_positions" array in the investment account box3_item
+- Each position should include: symbol, description, quantity (if available), value, and date
+- The validator will sum these individual positions to get the total investment account value
+- If BOTH individual positions AND a combined total are shown, extract both (the validator will verify they match)
+- If ONLY individual positions are shown (no combined total), extract them and leave value_eur_jan1/value_eur_dec31 as null (validator will sum them)
+- Remember this is only valid for stocks, investments, and crypto positions. Cash positions are extracted separately.
+
+⚠️ CRITICAL: DO NOT CALCULATE OR INFER TOTALS ⚠️:
+- You MUST ONLY extract value_eur_jan1 if there is an EXPLICIT total value stated in the document
+- DO NOT calculate totals by summing individual positions - the validator will do that
+- DO NOT infer or estimate totals - if you cannot find an explicit total statement, set value_eur_jan1 to null
+- DO NOT use approximate values or round numbers - only use exact values from the document
+- If the document shows individual positions but NO explicit total, set value_eur_jan1 to null and focus on extracting the individual positions accurately
+- Be careful with European number formats: dots (.) are thousands separators, commas (,) are decimal separators (e.g., "88.004,12" = 88004.12)
+
 MANDATORY EXTRACTION RULE:
 - You MUST ALWAYS extract BOTH a cash account AND an investment account
 - If you can find one but not the other, set the missing one to 0 (zero)
@@ -78,9 +96,9 @@ Return JSON in this EXACT format:
   "box3_items": [
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
-      "value_eur_jan1": <value in original currency from 1-Jan if available, otherwise from 31-Dec of previous year>,
+      "value_eur_jan1": <value in original currency from 1-Jan if available, otherwise from 31-Dec of previous year, or null if only individual positions are shown>,
       "value_eur_dec31": null,
-      "original_value": <same as value_eur_jan1>,
+      "original_value": <same as value_eur_jan1, or null if only individual positions are shown>,
       "original_currency": "USD" or "EUR" or other currency code,
       "realized_gains_eur": <number or null, typically only for investments>,
       "realized_losses_eur": <number or null, typically only for investments>,
@@ -88,7 +106,17 @@ Return JSON in this EXACT format:
       "dec31_reference_date": null,
       "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
       "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
-      "extraction_confidence": <0.0 to 1.0>
+      "extraction_confidence": <0.0 to 1.0>,
+      "individual_positions": [
+        {{
+          "symbol": "AAPL" or ticker symbol,
+          "description": "Full name of the security (e.g., 'Apple Inc.')",
+          "quantity": <number of shares (required)>,
+          "price": <price per share in original currency (required)>,
+          "currency": "USD" or "EUR" or other currency code,
+          "date": "YYYY-MM-DD" (the date this price is for, e.g., "2024-01-01" or "2023-12-31")
+        }}
+      ] or null (only include for investment accounts with individual positions shown)
     }}
   ]
 }}
@@ -106,6 +134,19 @@ Examples:
     "Stocks: $XXX,XXX.XX | $YYY,YYY.YY"
   → CORRECT: Extract values from the "Last Period" column (left column with 12/31/23 date)
   → WRONG: Do NOT extract values from the "This Period" column (right column with 1/31/24 date)
+- Individual positions example:
+  Statement shows individual positions:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    "Total portfolio value: $2,700"  ← EXPLICIT total found
+  → CORRECT: Extract individual_positions array with quantity=10, price=150 for AAPL and quantity=5, price=240 for VTI, AND include value_eur_jan1=2700 (explicit total found)
+  
+  Statement shows individual positions WITHOUT explicit total:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    (No "Total" line shown)
+  → CORRECT: Extract individual_positions array with quantity=10, price=150 for AAPL and quantity=5, price=240 for VTI, value_eur_jan1=null (no explicit total, validator will calculate quantity×price and sum)
+  → WRONG: value_eur_jan1=2700 (DO NOT calculate by summing positions!)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
@@ -130,6 +171,25 @@ These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different
 ⚠️ CRITICAL EXTRACTION WARNING ⚠️:
 You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
 DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
+
+⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
+Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- If the statement lists individual stocks/ETFs with their prices and quantities (e.g., "AAPL: 10 shares @ $150", "VTI: 5 shares @ $240"), extract EACH position separately
+- Include an "individual_positions" array in the investment account box3_item
+- Each position should include: symbol, description, quantity (number of shares), price (price per share in original currency), and date
+- DO NOT extract the total position value - extract the price per share instead
+- The validator will calculate the value by multiplying quantity × price for each position, then sum them to get the total investment account value
+- If BOTH individual positions AND a combined total are shown, extract both (the validator will verify they match)
+- If ONLY individual positions are shown (no combined total), extract them and leave value_eur_dec31 as null (validator will calculate and sum them)
+- Remember this is only valid for stocks, investments, and crypto positions. Cash positions are extracted separately.
+
+⚠️ CRITICAL: DO NOT CALCULATE OR INFER TOTALS ⚠️:
+- You MUST ONLY extract value_eur_dec31 if there is an EXPLICIT total value stated in the document
+- DO NOT calculate totals by summing individual positions - the validator will do that
+- DO NOT infer or estimate totals - if you cannot find an explicit total statement, set value_eur_dec31 to null
+- DO NOT use approximate values or round numbers - only use exact values from the document
+- If the document shows individual positions but NO explicit total, set value_eur_dec31 to null and focus on extracting the individual positions accurately
+- Be careful with European number formats: dots (.) are thousands separators, commas (,) are decimal separators (e.g., "88.004,12" = 88004.12)
 
 MANDATORY EXTRACTION RULE:
 - You MUST ALWAYS extract BOTH a cash account AND an investment account
@@ -156,8 +216,8 @@ Return JSON in this EXACT format:
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
       "value_eur_jan1": null,
-      "value_eur_dec31": <value in original currency from 31-Dec of tax year>,
-      "original_value": <same as value_eur_dec31>,
+      "value_eur_dec31": <value in original currency from 31-Dec of tax year, or null if only individual positions are shown>,
+      "original_value": <same as value_eur_dec31, or null if only individual positions are shown>,
       "original_currency": "USD" or "EUR" or other currency code,
       "realized_gains_eur": <number or null, typically only for investments>,
       "realized_losses_eur": <number or null, typically only for investments>,
@@ -165,7 +225,17 @@ Return JSON in this EXACT format:
       "dec31_reference_date": "YYYY-MM-DD" (the actual Dec 31 date shown, e.g., "2024-12-31"),
       "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
       "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
-      "extraction_confidence": <0.0 to 1.0>
+      "extraction_confidence": <0.0 to 1.0>,
+      "individual_positions": [
+        {{
+          "symbol": "AAPL" or ticker symbol,
+          "description": "Full name of the security (e.g., 'Apple Inc.')",
+          "quantity": <number of shares (required)>,
+          "price": <price per share in original currency (required)>,
+          "currency": "USD" or "EUR" or other currency code,
+          "date": "YYYY-MM-DD" (the date this price is for, e.g., "2024-12-31")
+        }}
+      ] or null (only include for investment accounts with individual positions shown)
     }}
   ]
 }}
@@ -178,6 +248,19 @@ Example: December 2024 statement showing:
   * Stocks item: value_eur_jan1=null, value_eur_dec31=100000, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
 → WRONG extraction (DO NOT DO THIS):
   * Cash item: value_eur_jan1=2000, value_eur_dec31=null, reference_date="2024-12-31" (Dec 31 value should go to value_eur_dec31!)
+- Individual positions example:
+  Statement shows individual positions on 31-Dec-2024:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    "Total portfolio value: $2,700"  ← EXPLICIT total found
+  → CORRECT: Extract individual_positions array with quantity=10, price=150 for AAPL and quantity=5, price=240 for VTI, AND include value_eur_dec31=2700 (explicit total found)
+  
+  Statement shows individual positions WITHOUT explicit total:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    (No "Total" line shown)
+  → CORRECT: Extract individual_positions array with quantity=10, price=150 for AAPL and quantity=5, price=240 for VTI, value_eur_dec31=null (no explicit total, validator will calculate quantity×price and sum)
+  → WRONG: value_eur_dec31=2700 (DO NOT calculate by summing positions!)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
@@ -208,6 +291,24 @@ These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different
 You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
 DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
 
+⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
+Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
+- Include an "individual_positions" array in the investment account box3_item
+- Each position should include: symbol, description, quantity (if available), value, and date
+- The validator will sum these individual positions to get the total investment account value
+- If BOTH individual positions AND a combined total are shown, extract both (the validator will verify they match)
+- If ONLY individual positions are shown (no combined total), extract them and leave value_eur_jan1 as null (validator will sum them)
+- Remember this is only valid for stocks, investments, and crypto positions. Cash positions are extracted separately.
+
+⚠️ CRITICAL: DO NOT CALCULATE OR INFER TOTALS ⚠️:
+- You MUST ONLY extract value_eur_jan1 if there is an EXPLICIT total value stated in the document
+- DO NOT calculate totals by summing individual positions - the validator will do that
+- DO NOT infer or estimate totals - if you cannot find an explicit total statement, set value_eur_jan1 to null
+- DO NOT use approximate values or round numbers - only use exact values from the document
+- If the document shows individual positions but NO explicit total, set value_eur_jan1 to null and focus on extracting the individual positions accurately
+- Be careful with European number formats: dots (.) are thousands separators, commas (,) are decimal separators (e.g., "88.004,12" = 88004.12)
+
 MANDATORY EXTRACTION RULE:
 - You MUST ALWAYS extract BOTH a cash account AND an investment account
 - If you can find one but not the other, set the missing one to 0 (zero)
@@ -232,9 +333,9 @@ Return JSON in this EXACT format:
   "box3_items": [
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
-      "value_eur_jan1": <value in original currency from 31-Dec of previous year>,
+      "value_eur_jan1": <value in original currency from 31-Dec of previous year, or null if only individual positions are shown>,
       "value_eur_dec31": null,
-      "original_value": <same as value_eur_jan1>,
+      "original_value": <same as value_eur_jan1, or null if only individual positions are shown>,
       "original_currency": "USD" or "EUR" or other currency code,
       "realized_gains_eur": <number or null, typically only for investments>,
       "realized_losses_eur": <number or null, typically only for investments>,
@@ -242,7 +343,17 @@ Return JSON in this EXACT format:
       "dec31_reference_date": null,
       "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
       "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
-      "extraction_confidence": <0.0 to 1.0>
+      "extraction_confidence": <0.0 to 1.0>,
+      "individual_positions": [
+        {{
+          "symbol": "AAPL" or ticker symbol,
+          "description": "Full name of the security (e.g., 'Apple Inc.')",
+          "quantity": <number of shares (required)>,
+          "price": <price per share in original currency (required)>,
+          "currency": "USD" or "EUR" or other currency code,
+          "date": "YYYY-MM-DD" (the date this price is for, e.g., "2023-12-31")
+        }}
+      ] or null (only include for investment accounts with individual positions shown)
     }}
   ]
 }}
@@ -255,6 +366,19 @@ Example: December 2023 statement (for tax year 2024) showing:
   * Stocks item: value_eur_jan1=100000, value_eur_dec31=null, reference_date="2023-12-31", dec31_reference_date=null
 → WRONG extraction (DO NOT DO THIS):
   * Cash item: value_eur_jan1=null, value_eur_dec31=2000, reference_date="2024-01-01", dec31_reference_date="2023-12-31" (Dec 31 value should go to value_eur_jan1, not value_eur_dec31!)
+- Individual positions example:
+  Statement shows individual positions on 31-Dec-2023:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    "Total portfolio value: $2,700"  ← EXPLICIT total found
+  → CORRECT: Extract individual_positions array with both positions, AND include value_eur_jan1=2700 (explicit total found)
+  
+  Statement shows individual positions WITHOUT explicit total:
+    "AAPL: 10 shares @ $150 = $1,500"
+    "VTI: 5 shares @ $240 = $1,200"
+    (No "Total" line shown)
+  → CORRECT: Extract individual_positions array with both positions, value_eur_jan1=null (no explicit total, validator will sum)
+  → WRONG: value_eur_jan1=2700 (DO NOT calculate by summing positions!)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
@@ -280,6 +404,24 @@ These MUST be extracted as SEPARATE items because Dutch Box 3 tax uses different
 ⚠️ CRITICAL EXTRACTION WARNING ⚠️:
 You MUST extract the INDIVIDUAL values of cash and equities/crypto/investments separately. 
 DO NOT extract the TOTAL account value (which is typically the sum of cash + investments).
+
+⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
+Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
+- Include an "individual_positions" array in the investment account box3_item
+- Each position should include: symbol, description, quantity (if available), value, and date
+- The validator will sum these individual positions to get the total investment account value
+- If BOTH individual positions AND a combined total are shown, extract both (the validator will verify they match)
+- If ONLY individual positions are shown (no combined total), extract them and leave value_eur_jan1/value_eur_dec31 as null (validator will sum them)
+- Remember this is only valid for stocks, investments, and crypto positions. Cash positions are extracted separately.
+
+⚠️ CRITICAL: DO NOT CALCULATE OR INFER TOTALS ⚠️:
+- You MUST ONLY extract value_eur_jan1 or value_eur_dec31 if there is an EXPLICIT total value stated in the document
+- DO NOT calculate totals by summing individual positions - the validator will do that
+- DO NOT infer or estimate totals - if you cannot find an explicit total statement, set value_eur_jan1/value_eur_dec31 to null
+- DO NOT use approximate values or round numbers - only use exact values from the document
+- If the document shows individual positions but NO explicit total, set value_eur_jan1/value_eur_dec31 to null and focus on extracting the individual positions accurately
+- Be careful with European number formats: dots (.) are thousands separators, commas (,) are decimal separators (e.g., "88.004,12" = 88004.12)
 
 MANDATORY EXTRACTION RULE:
 - You MUST ALWAYS extract BOTH a cash account AND an investment account
@@ -309,9 +451,9 @@ Return JSON in this EXACT format:
   "box3_items": [
     {{
       "asset_type": "savings" or "stocks" or "bonds" or "crypto" or "other",
-      "value_eur_jan1": <value in original currency or null if not available>,
-      "value_eur_dec31": <value in original currency or null if not available>,
-      "original_value": <same as value_eur_jan1 if available, otherwise value_eur_dec31>,
+      "value_eur_jan1": <value in original currency or null if not available, or null if only individual positions are shown>,
+      "value_eur_dec31": <value in original currency or null if not available, or null if only individual positions are shown>,
+      "original_value": <same as value_eur_jan1 if available, otherwise value_eur_dec31, or null if only individual positions are shown>,
       "original_currency": "USD" or "EUR" or other currency code,
       "realized_gains_eur": <number or null, typically only for investments>,
       "realized_losses_eur": <number or null, typically only for investments>,
@@ -319,7 +461,17 @@ Return JSON in this EXACT format:
       "dec31_reference_date": "YYYY-MM-DD" or null (the date of the value_eur_dec31, or closest to Dec 31),
       "description": "Account description (e.g., 'IBKR Cash Account' or 'IBKR Investment Portfolio')",
       "account_number": "Account number or identifier if available (e.g., '872', '123456789') or null",
-      "extraction_confidence": <0.0 to 1.0>
+      "extraction_confidence": <0.0 to 1.0>,
+      "individual_positions": [
+        {{
+          "symbol": "AAPL" or ticker symbol,
+          "description": "Full name of the security (e.g., 'Apple Inc.')",
+          "quantity": <number of shares (required)>,
+          "price": <price per share in original currency (required)>,
+          "currency": "USD" or "EUR" or other currency code,
+          "date": "YYYY-MM-DD" (the date this price is for, e.g., "2024-01-01" or "2024-12-31")
+        }}
+      ] or null (only include for investment accounts with individual positions shown)
     }}
   ]
 }}
@@ -331,6 +483,25 @@ Examples:
   → TWO items (savings and stocks, both with value_eur_jan1=null, value_eur_dec31 set)
 - Full year statement for account opened mid-year (e.g., July 1, 2024) showing Dec 31 values:
   → TWO items (savings and stocks, both with value_eur_jan1=null, value_eur_dec31 set, reference_date="2024-07-01" or account opening date)
+- Individual positions example:
+  Statement shows individual positions:
+    Jan 1, 2024:
+      "AAPL: 10 shares @ $150 = $1,500"
+      "VTI: 5 shares @ $240 = $1,200"
+      "Total portfolio value: $2,700"  ← EXPLICIT total found
+    Dec 31, 2024:
+      "AAPL: 10 shares @ $160 = $1,600"
+      "VTI: 5 shares @ $250 = $1,250"
+      "Total portfolio value: $2,850"  ← EXPLICIT total found
+  → CORRECT: Extract individual_positions array with positions for both dates, AND include value_eur_jan1=2700 and value_eur_dec31=2850 (explicit totals found)
+  
+  Statement shows individual positions WITHOUT explicit totals:
+    Dec 31, 2024:
+      "AAPL: 10 shares @ $160 = $1,600"
+      "VTI: 5 shares @ $250 = $1,250"
+      (No "Total" line shown)
+  → CORRECT: Extract individual_positions array with both positions, value_eur_dec31=null (no explicit total, validator will sum)
+  → WRONG: value_eur_dec31=2850 (DO NOT calculate by summing positions!)
 
 If you cannot find BOTH cash AND investment account values (neither can be extracted), return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
@@ -428,6 +599,30 @@ def us_broker_parser_agent(input_data: dict) -> dict:
                 item["extraction_confidence"] = 0.8
             if "account_number" not in item:
                 item["account_number"] = None
+            
+            # Validate and log individual positions if present
+            if "individual_positions" in item and item["individual_positions"]:
+                positions = item["individual_positions"]
+                if isinstance(positions, list) and len(positions) > 0:
+                    logger.info(
+                        f"Found {len(positions)} individual positions for {item.get('asset_type', 'unknown')} "
+                        f"account in {filename}"
+                    )
+                    # Validate position structure
+                    for pos_idx, pos in enumerate(positions):
+                        if not isinstance(pos, dict):
+                            logger.warning(
+                                f"Invalid position structure at index {pos_idx} in {filename}: "
+                                f"expected dict, got {type(pos)}"
+                            )
+                            continue
+                        required_fields = ["symbol", "quantity", "price", "date"]
+                        missing_fields = [f for f in required_fields if f not in pos]
+                        if missing_fields:
+                            logger.warning(
+                                f"Position {pos.get('symbol', f'at index {pos_idx}')} in {filename} "
+                                f"missing required fields: {missing_fields}"
+                            )
 
         # Post-processing: Ensure both cash (savings) and investment (stocks/crypto) accounts are present
         # If one is missing, add it with 0 value

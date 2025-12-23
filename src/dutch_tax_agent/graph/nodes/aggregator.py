@@ -129,40 +129,78 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             # No merging needed - check if it has both values that were actually extracted
             asset = assets[0]
             # Check if values were actually extracted (not defaulted)
-            has_jan1 = getattr(asset, '_jan1_was_extracted', True)  # Default to True if not set
-            has_dec31 = getattr(asset, '_dec31_was_extracted', False) or asset.value_eur_dec31 is not None
+            # has_jan1: True if value was extracted AND value is not None
+            jan1_was_extracted = getattr(asset, '_jan1_was_extracted', True)  # Default to True if not set
+            has_jan1 = jan1_was_extracted and asset.value_eur_jan1 is not None
+            # has_dec31: True if value exists (regardless of whether it was explicitly extracted)
+            has_dec31 = asset.value_eur_dec31 is not None
             
             # Check for mid-year account opening scenario (single asset case)
+            # If Jan 1 is missing but Dec 31 is present, account was opened mid-year - set Jan 1 to 0
             if not has_jan1 and has_dec31:
+                # Account was opened after January - Jan 1 value should be 0.0
                 doc_start = getattr(asset, '_doc_start_date', None)
-                if doc_start and doc_start.month > 1:
-                    # Account was opened after January - Jan 1 value should be 0.0
-                    logger.info(
-                        f"Detected mid-year account opening for {asset.description or 'Unknown'} "
-                        f"({asset.asset_type}): document starts {doc_start}, "
-                        f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
-                    )
-                    # Create a new asset with Jan 1 set to 0.0 and reference_date set to tax year's Jan 1
-                    tax_year = state.tax_year
-                    asset = Box3Asset(
-                        source_doc_id=asset.source_doc_id,
-                        source_filename=asset.source_filename,
-                        source_page=asset.source_page,
-                        asset_type=asset.asset_type,
-                        value_eur_jan1=0.0,
-                        value_eur_dec31=asset.value_eur_dec31,
-                        realized_gains_eur=asset.realized_gains_eur,
-                        realized_losses_eur=asset.realized_losses_eur,
-                        original_value=asset.original_value,
-                        original_currency=asset.original_currency,
-                        conversion_rate=asset.conversion_rate,
-                        reference_date=date(tax_year, 1, 1),  # Jan 1 of tax year for the 0.0 value
-                        description=asset.description,
-                        account_number=asset.account_number,
-                        extraction_confidence=asset.extraction_confidence,
-                        original_text_snippet=asset.original_text_snippet,
-                    )
-                    has_jan1 = True
+                logger.info(
+                    f"Detected mid-year account opening for {asset.description or 'Unknown'} "
+                    f"({asset.asset_type}): Jan 1 value not found but Dec 31 value present"
+                    f"{f', document starts {doc_start}' if doc_start else ''}, "
+                    f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
+                )
+                # Create a new asset with Jan 1 set to 0.0 and reference_date set to tax year's Jan 1
+                tax_year = state.tax_year
+                asset = Box3Asset(
+                    source_doc_id=asset.source_doc_id,
+                    source_filename=asset.source_filename,
+                    source_page=asset.source_page,
+                    asset_type=asset.asset_type,
+                    value_eur_jan1=0.0,
+                    value_eur_dec31=asset.value_eur_dec31,
+                    realized_gains_eur=asset.realized_gains_eur,
+                    realized_losses_eur=asset.realized_losses_eur,
+                    original_value=asset.original_value,
+                    original_currency=asset.original_currency,
+                    conversion_rate=asset.conversion_rate,
+                    reference_date=date(tax_year, 1, 1),  # Jan 1 of tax year for the 0.0 value
+                    description=asset.description,
+                    account_number=asset.account_number,
+                    extraction_confidence=asset.extraction_confidence,
+                    original_text_snippet=asset.original_text_snippet,
+                )
+                has_jan1 = True
+            
+            # Check for mid-year statement ending before Dec 31 (single asset case)
+            # If Jan 1 is present but Dec 31 is missing, statement ends mid-year - set Dec 31 to 0
+            if has_jan1 and not has_dec31:
+                # Statement doesn't cover Dec 31 - Dec 31 value should be 0.0
+                doc_end = getattr(asset, '_doc_end_date', None)
+                tax_year = state.tax_year
+                dec31_target = date(tax_year, 12, 31)
+                logger.info(
+                    f"Detected mid-year statement ending for {asset.description or 'Unknown'} "
+                    f"({asset.asset_type}): Jan 1 value present but Dec 31 value not found"
+                    f"{f', document ends {doc_end}' if doc_end else ''}, "
+                    f"statement doesn't cover Dec 31, setting Dec 31 value to 0.0"
+                )
+                # Create a new asset with Dec 31 set to 0.0
+                asset = Box3Asset(
+                    source_doc_id=asset.source_doc_id,
+                    source_filename=asset.source_filename,
+                    source_page=asset.source_page,
+                    asset_type=asset.asset_type,
+                    value_eur_jan1=asset.value_eur_jan1,
+                    value_eur_dec31=0.0,
+                    realized_gains_eur=asset.realized_gains_eur,
+                    realized_losses_eur=asset.realized_losses_eur,
+                    original_value=asset.original_value,
+                    original_currency=asset.original_currency,
+                    conversion_rate=asset.conversion_rate,
+                    reference_date=asset.reference_date,
+                    description=asset.description,
+                    account_number=asset.account_number,
+                    extraction_confidence=asset.extraction_confidence,
+                    original_text_snippet=asset.original_text_snippet,
+                )
+                has_dec31 = True
             
             if has_jan1 and has_dec31:
                 merged_box3_items.append(asset)
@@ -237,7 +275,7 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             if jan_documents:
                 # Look for Jan 1 value in January documents (preferred)
                 for a in jan_documents:
-                    if getattr(a, '_jan1_was_extracted', True):
+                    if getattr(a, '_jan1_was_extracted', True) and a.value_eur_jan1 is not None:
                         merged_jan1 = a.value_eur_jan1
                         has_jan1 = True
                         break
@@ -264,26 +302,19 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 
                 if not has_jan1:
                     # Check if this is a mid-year account opening scenario
-                    # If we have Dec 31 data and the document starts after January, account was opened mid-year
+                    # If we have Dec 31 data but no Jan 1 data, account was opened mid-year
                     # In this case, Jan 1 value should be 0.0 (account didn't exist on Jan 1)
-                    mid_year_opening = False
-                    if has_dec31:
-                        # Check if any document starts after January (indicating mid-year account opening)
-                        for a in assets:
-                            doc_start = getattr(a, '_doc_start_date', None)
-                            if doc_start and doc_start.month > 1:
-                                # Account was opened after January - Jan 1 value should be 0.0
-                                mid_year_opening = True
-                                logger.info(
-                                    f"Detected mid-year account opening for {base_asset.description or 'Unknown'} "
-                                    f"({base_asset.asset_type}): document starts {doc_start}, "
-                                    f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
-                                )
-                                break
-                    
-                    if mid_year_opening:
+                    # Check if any asset has a Dec 31 value
+                    has_dec31_value = any(a.value_eur_dec31 is not None for a in assets)
+                    if has_dec31_value:
+                        # Account was opened after January - Jan 1 value should be 0.0
                         merged_jan1 = 0.0
                         has_jan1 = True
+                        logger.info(
+                            f"Detected mid-year account opening for {base_asset.description or 'Unknown'} "
+                            f"({base_asset.asset_type}): Jan 1 value not found but Dec 31 value present, "
+                            f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
+                        )
                     else:
                         # No Jan 1 value found in any document - cannot determine Jan 1 value
                         logger.warning(
@@ -310,11 +341,22 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                         f"({base_asset.asset_type}), assuming 0.0"
                     )
             else:
-                # No December documents found - cannot determine Dec 31 value
-                logger.warning(
-                    f"No December-dated documents found for {base_asset.description or 'Unknown'} "
-                    f"({base_asset.asset_type}), cannot determine Dec 31 value"
-                )
+                # No December documents found - check if this is a mid-year statement ending before Dec 31
+                if has_jan1:
+                    # If we have Jan 1 data but no Dec 31 data, statement ends mid-year - set Dec 31 to 0
+                    merged_dec31 = 0.0
+                    has_dec31 = True
+                    logger.info(
+                        f"Detected mid-year statement ending for {base_asset.description or 'Unknown'} "
+                        f"({base_asset.asset_type}): Jan 1 value present but Dec 31 value not found, "
+                        f"statement doesn't cover Dec 31, setting Dec 31 value to 0.0"
+                    )
+                else:
+                    # No December documents found - cannot determine Dec 31 value
+                    logger.warning(
+                        f"No December-dated documents found for {base_asset.description or 'Unknown'} "
+                        f"({base_asset.asset_type}), cannot determine Dec 31 value"
+                    )
             
             # Quarantine if we don't have both values from appropriate documents
             if not (has_jan1 and has_dec31):
