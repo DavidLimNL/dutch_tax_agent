@@ -158,7 +158,6 @@ def optimize_partner_allocation(
     optimized_result.partner_split = {
         "partner_a": alloc_a,
         "partner_b": alloc_b,
-        "note": msg
     }
     
     # Calculate savings
@@ -172,6 +171,7 @@ def optimize_partner_allocation(
     # The savings calculation depends on A's income status, which we assume is high.
     
     optimized_result.calculation_breakdown["optimization_savings"] = used_credit
+    optimized_result.calculation_breakdown["optimization_note"] = msg
     
     logger.info(f"Optimization complete: {msg}")
     

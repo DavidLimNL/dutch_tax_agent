@@ -18,10 +18,11 @@ from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
 from dutch_tax_agent.schemas.state import TaxGraphState
 
 # Setup logging
+console = Console()
 logging.basicConfig(
     level=settings.log_level,
     format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True)],
+    handlers=[RichHandler(rich_tracebacks=True, console=console)],
 )
 
 # Suppress verbose Presidio logging
@@ -32,7 +33,6 @@ logging.getLogger("presidio_analyzer.entity_recognizer").setLevel(logging.ERROR)
 logging.getLogger("presidio_analyzer.recognizers_loader_utils").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 class DutchTaxAgent:
@@ -96,7 +96,7 @@ class DutchTaxAgent:
             console.print(f"[green]✓[/green] Parsed {len(parsed_docs)} documents")
 
             #  TO BE REMOVED LATER
-            # logger.info(f"Parsed DOCS: {parsed_docs[0]}")
+            logger.info(f"Parsed DOCS: {parsed_docs[0]}")
 
             # Scrub PII (ZERO-TRUST: Documents that fail scrubbing are excluded)
             progress.update(task, description="Scrubbing PII...")
@@ -117,8 +117,8 @@ class DutchTaxAgent:
                 raise
 
         #  TO BE REMOVED LATER
-        # logger.info(f"Scrubbed DOCS: {scrubbed_docs[0]}")
-        # return
+        logger.info(f"Scrubbed DOCS: {scrubbed_docs[0]}")
+        return
 
         # Phase 2 & 3: LangGraph Processing
         console.print("\n[bold]Phase 2: LangGraph Map-Reduce Extraction[/bold]")

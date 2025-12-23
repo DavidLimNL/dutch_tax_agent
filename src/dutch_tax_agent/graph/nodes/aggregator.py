@@ -166,8 +166,9 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             
             if has_jan1 and has_dec31:
                 merged_box3_items.append(asset)
+                account_info = f" [bold cyan]account_number='{asset.account_number}'[/bold cyan]" if asset.account_number else ""
                 logger.info(
-                    f"Single asset: {asset.description or 'Unknown'} ({asset.asset_type}) "
+                    f"Single asset: {asset.description or 'Unknown'} ({asset.asset_type}){account_info} "
                     f"from {asset.source_filename}: "
                     f"Jan1=€{asset.value_eur_jan1:,.2f}, Dec31=€{asset.value_eur_dec31 or 0:,.2f}"
                 )
@@ -367,8 +368,10 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             )
             
             merged_box3_items.append(merged_asset)
+            account_info = f" [bold cyan]account_number='{merged_asset.account_number}'[/bold cyan]" if merged_asset.account_number else ""
             logger.info(
-                f"Merged asset: Jan1=€{merged_jan1:,.2f}, Dec31=€{merged_dec31 or 0:,.2f}, "
+                f"Merged asset: {merged_asset.description or 'Unknown'} ({merged_asset.asset_type}){account_info} "
+                f"Jan1=€{merged_jan1:,.2f}, Dec31=€{merged_dec31 or 0:,.2f}, "
                 f"from {len(assets)} documents"
             )
     
