@@ -5,6 +5,12 @@
       "last": "LASTNAME",
       "middle": null,
       "full_name": "FIRSTNAME LASTNAME"
+    },
+    {
+      "first": "FIRSTNAME",
+      "last": "LASTNAME",
+      "middle": ["MIDDLE1", "MIDDLE2"],
+      "full_name": "FIRSTNAME MIDDLE1 MIDDLE2 LASTNAME"
     }
   ]
 }

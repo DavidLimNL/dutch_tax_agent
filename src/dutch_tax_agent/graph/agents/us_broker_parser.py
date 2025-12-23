@@ -35,6 +35,8 @@ DO NOT extract the TOTAL account value (which is typically the sum of cash + inv
 
 ⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
 Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- PRIORITY: When extracting individual positions, ALWAYS prioritize positions from the "Open Positions" table or section over positions from "Trades" sections
+- If the statement has both "Open Positions" and "Trades" sections, ONLY extract from "Open Positions" (trades are historical transactions, not current holdings)
 - If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
 - Include an "individual_positions" array in the investment account box3_item
 - Each position should include: symbol, description, quantity (if available), value, and date
@@ -174,6 +176,8 @@ DO NOT extract the TOTAL account value (which is typically the sum of cash + inv
 
 ⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
 Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- PRIORITY: When extracting individual positions, ALWAYS prioritize positions from the "Open Positions" table or section over positions from "Trades" sections
+- If the statement has both "Open Positions" and "Trades" sections, ONLY extract from "Open Positions" (trades are historical transactions, not current holdings)
 - If the statement lists individual stocks/ETFs with their prices and quantities (e.g., "AAPL: 10 shares @ $150", "VTI: 5 shares @ $240"), extract EACH position separately
 - Include an "individual_positions" array in the investment account box3_item
 - Each position should include: symbol, description, quantity (number of shares), price (price per share in original currency), and date
@@ -293,6 +297,8 @@ DO NOT extract the TOTAL account value (which is typically the sum of cash + inv
 
 ⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
 Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- PRIORITY: When extracting individual positions, ALWAYS prioritize positions from the "Open Positions" table or section over positions from "Trades" sections
+- If the statement has both "Open Positions" and "Trades" sections, ONLY extract from "Open Positions" (trades are historical transactions, not current holdings)
 - If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
 - Include an "individual_positions" array in the investment account box3_item
 - Each position should include: symbol, description, quantity (if available), value, and date
@@ -407,6 +413,8 @@ DO NOT extract the TOTAL account value (which is typically the sum of cash + inv
 
 ⚠️ INDIVIDUAL STOCK/ETF POSITIONS ⚠️:
 Some statements show individual stock/ETF positions instead of (or in addition to) a combined investment account value.
+- PRIORITY: When extracting individual positions, ALWAYS prioritize positions from the "Open Positions" table or section over positions from "Trades" sections
+- If the statement has both "Open Positions" and "Trades" sections, ONLY extract from "Open Positions" (trades are historical transactions, not current holdings)
 - If the statement lists individual stocks/ETFs with their values (e.g., "AAPL: $1,500", "VTI: $1,200"), extract EACH position separately
 - Include an "individual_positions" array in the investment account box3_item
 - Each position should include: symbol, description, quantity (if available), value, and date

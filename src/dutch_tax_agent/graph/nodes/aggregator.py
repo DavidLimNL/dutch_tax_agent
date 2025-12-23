@@ -4,10 +4,15 @@ import logging
 from collections import defaultdict
 from datetime import date, datetime
 
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
 from dutch_tax_agent.schemas.state import TaxGraphState
 from dutch_tax_agent.schemas.tax_entities import Box1Income, Box3Asset
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 
 def aggregate_extraction_node(state: TaxGraphState) -> dict:
@@ -123,6 +128,8 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
     # Merge assets for each account
     merged_box3_items = []
     quarantined_assets = []
+    # Collect asset information for table display
+    asset_table_data = []
     
     for account_key, assets in account_map.items():
         if len(assets) == 1:
@@ -135,16 +142,17 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             # has_dec31: True if value exists (regardless of whether it was explicitly extracted)
             has_dec31 = asset.value_eur_dec31 is not None
             
+            # Track notes for table display
+            asset_note = ""
+            
             # Check for mid-year account opening scenario (single asset case)
             # If Jan 1 is missing but Dec 31 is present, account was opened mid-year - set Jan 1 to 0
             if not has_jan1 and has_dec31:
                 # Account was opened after January - Jan 1 value should be 0.0
                 doc_start = getattr(asset, '_doc_start_date', None)
-                logger.info(
-                    f"Detected mid-year account opening for {asset.description or 'Unknown'} "
-                    f"({asset.asset_type}): Jan 1 value not found but Dec 31 value present"
-                    f"{f', document starts {doc_start}' if doc_start else ''}, "
-                    f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
+                asset_note = (
+                    f"Mid-year opening: Jan 1 not found but Dec 31 present"
+                    f"{f', doc starts {doc_start}' if doc_start else ''}"
                 )
                 # Create a new asset with Jan 1 set to 0.0 and reference_date set to tax year's Jan 1
                 tax_year = state.tax_year
@@ -175,11 +183,11 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 doc_end = getattr(asset, '_doc_end_date', None)
                 tax_year = state.tax_year
                 dec31_target = date(tax_year, 12, 31)
-                logger.info(
-                    f"Detected mid-year statement ending for {asset.description or 'Unknown'} "
-                    f"({asset.asset_type}): Jan 1 value present but Dec 31 value not found"
-                    f"{f', document ends {doc_end}' if doc_end else ''}, "
-                    f"statement doesn't cover Dec 31, setting Dec 31 value to 0.0"
+                if asset_note:
+                    asset_note += "; "
+                asset_note += (
+                    f"Mid-year ending: Dec 31 not found"
+                    f"{f', doc ends {doc_end}' if doc_end else ''}"
                 )
                 # Create a new asset with Dec 31 set to 0.0
                 asset = Box3Asset(
@@ -204,12 +212,16 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             
             if has_jan1 and has_dec31:
                 merged_box3_items.append(asset)
-                account_info = f" [bold cyan]account_number='{asset.account_number}'[/bold cyan]" if asset.account_number else ""
-                logger.info(
-                    f"Single asset: {asset.description or 'Unknown'} ({asset.asset_type}){account_info} "
-                    f"from {asset.source_filename}: "
-                    f"Jan1=€{asset.value_eur_jan1:,.2f}, Dec31=€{asset.value_eur_dec31 or 0:,.2f}"
-                )
+                # Collect data for table display
+                asset_table_data.append({
+                    "description": asset.description or "Unknown",
+                    "asset_type": asset.asset_type,
+                    "account_number": asset.account_number or "",
+                    "source_filename": asset.source_filename,
+                    "jan1": asset.value_eur_jan1,
+                    "dec31": asset.value_eur_dec31 or 0,
+                    "notes": asset_note,
+                })
             else:
                 # Quarantine: missing required dates for actual return calculation
                 missing_dates = []
@@ -238,6 +250,9 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             
             # Use the first asset as the base
             base_asset = assets[0]
+            
+            # Track notes for merged assets
+            merged_notes = []
             
             # Get tax year for reference date comparison
             tax_year = state.tax_year
@@ -310,11 +325,7 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                         # Account was opened after January - Jan 1 value should be 0.0
                         merged_jan1 = 0.0
                         has_jan1 = True
-                        logger.info(
-                            f"Detected mid-year account opening for {base_asset.description or 'Unknown'} "
-                            f"({base_asset.asset_type}): Jan 1 value not found but Dec 31 value present, "
-                            f"account didn't exist on Jan 1, setting Jan 1 value to 0.0"
-                        )
+                        merged_notes.append("Mid-year opening: Jan 1 not found but Dec 31 present")
                     else:
                         # No Jan 1 value found in any document - cannot determine Jan 1 value
                         logger.warning(
@@ -346,11 +357,7 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     # If we have Jan 1 data but no Dec 31 data, statement ends mid-year - set Dec 31 to 0
                     merged_dec31 = 0.0
                     has_dec31 = True
-                    logger.info(
-                        f"Detected mid-year statement ending for {base_asset.description or 'Unknown'} "
-                        f"({base_asset.asset_type}): Jan 1 value present but Dec 31 value not found, "
-                        f"statement doesn't cover Dec 31, setting Dec 31 value to 0.0"
-                    )
+                    merged_notes.append("Mid-year ending: Dec 31 not found")
                 else:
                     # No December documents found - cannot determine Dec 31 value
                     logger.warning(
@@ -410,12 +417,17 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             )
             
             merged_box3_items.append(merged_asset)
-            account_info = f" [bold cyan]account_number='{merged_asset.account_number}'[/bold cyan]" if merged_asset.account_number else ""
-            logger.info(
-                f"Merged asset: {merged_asset.description or 'Unknown'} ({merged_asset.asset_type}){account_info} "
-                f"Jan1=€{merged_jan1:,.2f}, Dec31=€{merged_dec31 or 0:,.2f}, "
-                f"from {len(assets)} documents"
-            )
+            # Collect data for table display
+            notes_str = "; ".join(merged_notes) if merged_notes else "Merged"
+            asset_table_data.append({
+                "description": merged_asset.description or "Unknown",
+                "asset_type": merged_asset.asset_type,
+                "account_number": merged_asset.account_number or "",
+                "source_filename": f"{len(assets)} documents",
+                "jan1": merged_jan1,
+                "dec31": merged_dec31 or 0,
+                "notes": notes_str,
+            })
     
     # Add quarantine errors for assets missing required dates
     if quarantined_assets:
@@ -428,12 +440,82 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
     
     all_box3_items = merged_box3_items
 
+    # After merging, remove validation errors that were resolved by aggregation
+    # These are errors about missing Jan 1 or Dec 31 values that were filled in during merging
+    resolved_errors = []
+    remaining_errors = []
+    
+    # Build a set of all source filenames from successfully merged assets with both values
+    # Note: merged assets may have comma-separated filenames, so we need to check all of them
+    successfully_merged_files = set()
+    for asset in merged_box3_items:
+        if asset.value_eur_jan1 is not None and asset.value_eur_dec31 is not None:
+            # Split comma-separated filenames and add each one
+            filenames = [f.strip() for f in asset.source_filename.split(",")]
+            successfully_merged_files.update(filenames)
+    
+    # Filter out errors about missing values for files that were successfully merged
+    for error in all_errors:
+        # Check if this is a Box3 validation error about missing values
+        if "Box3 validation error" in error and "must have at least one of value_eur_jan1 or value_eur_dec31" in error:
+            # Extract filename from error message
+            # Error format: "Box3 validation error in {filename}: ..."
+            if " in " in error:
+                filename = error.split(" in ", 1)[1].split(":", 1)[0].strip()
+                if filename in successfully_merged_files:
+                    # This error was resolved by merging - remove it
+                    resolved_errors.append(error)
+                    continue
+        
+        # Keep all other errors
+        remaining_errors.append(error)
+    
+    if resolved_errors:
+        logger.info(
+            f"Resolved {len(resolved_errors)} validation error(s) through aggregation: "
+            f"missing values were filled in by merging documents"
+        )
+        for error in resolved_errors:
+            logger.debug(f"Resolved error: {error}")
+    
+    all_errors = remaining_errors
+
     logger.info(
         f"Aggregated: {len(all_box1_items)} Box1 items, "
         f"{len(all_box3_items)} Box3 items (after merging and quarantine), "
         f"{len(quarantined_assets)} Box3 items quarantined (missing required dates), "
         f"{len(all_errors)} errors"
     )
+
+    # Display assets in a table format
+    if asset_table_data:
+        table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
+        table.add_column("Description", style="cyan", no_wrap=False)
+        table.add_column("Asset Type", style="green")
+        table.add_column("Account Number", style="yellow")
+        table.add_column("Source File", style="blue", no_wrap=False)
+        table.add_column("Jan 1 (€)", justify="right", style="bold")
+        table.add_column("Dec 31 (€)", justify="right", style="bold")
+        table.add_column("Notes", style="dim", no_wrap=False)
+        
+        for asset_data in asset_table_data:
+            account_num = asset_data["account_number"]
+            if account_num:
+                account_num_text = Text(account_num, style="bold cyan")
+            else:
+                account_num_text = ""
+            
+            table.add_row(
+                asset_data["description"],
+                asset_data["asset_type"],
+                account_num_text,
+                asset_data["source_filename"],
+                f"{asset_data['jan1']:,.2f}",
+                f"{asset_data['dec31']:,.2f}",
+                asset_data["notes"] if asset_data["notes"] else "",
+            )
+        
+        console.print(table)
 
     # Clear document text after aggregation to reduce token usage and memory
     # The full document text is no longer needed since we have structured extraction results

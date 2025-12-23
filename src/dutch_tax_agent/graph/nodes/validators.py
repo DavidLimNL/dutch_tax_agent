@@ -231,6 +231,23 @@ def validator_node(state: TaxGraphState) -> dict:
             validation_errors.append(quarantine_reason)
             logger.warning(quarantine_reason)
         
+        # Determine if this is a dec_period statement (December statement of tax year)
+        # by checking if document end date is around Dec 31 of tax year
+        is_dec_period = False
+        if parsed_end:
+            tax_year_dec31 = date(state.tax_year, 12, 31)
+            days_from_dec31 = abs((parsed_end - tax_year_dec31).days)
+            if days_from_dec31 <= 3:
+                is_dec_period = True
+        # Also check if all box3 items have null jan1 values (another indicator of dec_period)
+        if not is_dec_period:
+            all_jan1_null = all(
+                item.get("value_eur_jan1") is None 
+                for item in extracted_data.get("box3_items", [])
+            )
+            if all_jan1_null and extracted_data.get("box3_items"):
+                is_dec_period = True
+        
         # Validate Box 3 asset items
         for asset_data in extracted_data.get("box3_items", []):
             try:
@@ -301,6 +318,17 @@ def validator_node(state: TaxGraphState) -> dict:
                                     jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
                                 elif days_from_dec31 <= 3:
                                     dec31_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                elif is_dec_period and parsed_end:
+                                    # For dec_period statements, also check if position date is close to document end date
+                                    days_from_doc_end = abs((pos_date - parsed_end).days)
+                                    if days_from_doc_end <= 3:
+                                        dec31_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                        logger.debug(
+                                            f"Position {pos.get('symbol', 'unknown')} with date {pos_date} "
+                                            f"included in Dec 31 bucket (close to document end date {parsed_end})"
+                                        )
+                                    else:
+                                        other_positions.append((pos_value, pos_currency, pos.get("symbol"), pos_date))
                                 else:
                                     other_positions.append((pos_value, pos_currency, pos.get("symbol"), pos_date))
                             except (ValueError, AttributeError) as e:
@@ -308,15 +336,32 @@ def validator_node(state: TaxGraphState) -> dict:
                                     f"Could not parse date '{pos_date_str}' for position "
                                     f"{pos.get('symbol', 'unknown')} in {source_filename}: {e}"
                                 )
-                                # Default to Jan 1 if we can't parse the date
-                                jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                # For dec_period statements, default to Dec 31; otherwise default to Jan 1
+                                if is_dec_period:
+                                    dec31_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                    logger.debug(
+                                        f"Position {pos.get('symbol', 'unknown')} with unparseable date defaulted to Dec 31 "
+                                        f"(dec_period statement)"
+                                    )
+                                else:
+                                    jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                    logger.debug(
+                                        f"Position {pos.get('symbol', 'unknown')} with unparseable date defaulted to Jan 1"
+                                    )
                         else:
-                            # No date specified, default to Jan 1
-                            logger.warning(
-                                f"Position {pos.get('symbol', 'unknown')} missing date in {source_filename}, "
-                                f"defaulting to Jan 1"
-                            )
-                            jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                            # No date specified: for dec_period statements, default to Dec 31; otherwise default to Jan 1
+                            if is_dec_period:
+                                dec31_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                logger.debug(
+                                    f"Position {pos.get('symbol', 'unknown')} missing date in {source_filename}, "
+                                    f"defaulting to Dec 31 (dec_period statement)"
+                                )
+                            else:
+                                jan1_positions.append((pos_value, pos_currency, pos.get("symbol")))
+                                logger.debug(
+                                    f"Position {pos.get('symbol', 'unknown')} missing date in {source_filename}, "
+                                    f"defaulting to Jan 1"
+                                )
                     
                     # Sum Jan 1 positions (convert to same currency first)
                     if jan1_positions:
