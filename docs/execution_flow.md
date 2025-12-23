@@ -22,7 +22,7 @@ main.py:102
        │   ├─> dutch_parser_agent (graph/agents/dutch_parser.py:17)
        │   │   └─> Returns: dict with extracted_data
        │   │
-       │   ├─> us_broker_parser_agent (graph/agents/us_broker_parser.py:17)
+       │   ├─> investment_broker_parser_agent (graph/agents/investment_broker_parser.py:17)
        │   │   └─> Returns: dict with extracted_data
        │   │
        │   └─> salary_parser_agent (graph/agents/salary_parser.py:17)
@@ -152,7 +152,7 @@ START
   ↓
 dispatcher (classifies documents, returns Command with Send objects)
   ↓
-[dutch_parser, us_broker_parser, salary_parser]  ← Parallel (via Command's Send objects)
+[dutch_parser, investment_broker_parser, salary_parser]  ← Parallel (via Command's Send objects)
   ↓
 validator (validates & normalizes, accumulates in state.validated_results)
   ↓

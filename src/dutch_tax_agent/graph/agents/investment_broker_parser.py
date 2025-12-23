@@ -1,4 +1,4 @@
-"""US broker statement parser agent."""
+"""Investment broker statement parser agent."""
 
 import json
 import logging
@@ -515,20 +515,22 @@ If you cannot find BOTH cash AND investment account values (neither can be extra
 """
 
 
-@traceable(name="US Broker Parser Agent")
-def us_broker_parser_agent(input_data: dict) -> dict:
-    """Parse US brokerage statements for Box 3 assets.
+@traceable(name="Investment Broker Parser Agent")
+def investment_broker_parser_agent(input_data: dict) -> dict:
+    """Parse investment brokerage statements for Box 3 assets.
+    
+    Handles both US and European investment broker statements.
     
     Extracts:
     - Investment portfolio value on Jan 1
     - Realized gains/losses during the year
-    - Currency (typically USD)
+    - Currency (USD, EUR, or other)
     
     Args:
         input_data: Dict with doc_id, doc_text, filename, classification
         
     Returns:
-        Dict with extracted Box 3 asset data (in USD, will be converted later)
+        Dict with extracted Box 3 asset data (will be converted to EUR later)
     """
     doc_id = input_data["doc_id"]
     doc_text = input_data["doc_text"]
@@ -537,7 +539,7 @@ def us_broker_parser_agent(input_data: dict) -> dict:
     statement_subtype = classification.get("statement_subtype")
 
     logger.info(
-        f"US broker parser processing {filename} "
+        f"Investment broker parser processing {filename} "
         f"(subtype: {statement_subtype or 'unknown'})"
     )
 
@@ -721,7 +723,7 @@ def us_broker_parser_agent(input_data: dict) -> dict:
         extracted_data["box3_items"] = box3_items
 
         logger.info(
-            f"US broker parser extracted {len(box3_items)} items (cash={'yes' if has_cash else 'no'}, investment={'yes' if has_investment else 'no'})"
+            f"Investment broker parser extracted {len(box3_items)} items (cash={'yes' if has_cash else 'no'}, investment={'yes' if has_investment else 'no'})"
         )
 
         # Return state update that will be merged into TaxGraphState.extraction_results
@@ -739,7 +741,7 @@ def us_broker_parser_agent(input_data: dict) -> dict:
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parsing error in US broker parser: {e}")
+        logger.error(f"JSON parsing error in investment broker parser: {e}")
         return {
             "extraction_results": [
                 {
@@ -753,7 +755,7 @@ def us_broker_parser_agent(input_data: dict) -> dict:
             ]
         }
     except Exception as e:
-        logger.error(f"US broker parser failed: {e}")
+        logger.error(f"Investment broker parser failed: {e}")
         return {
             "extraction_results": [
                 {
@@ -766,5 +768,4 @@ def us_broker_parser_agent(input_data: dict) -> dict:
                 }
             ]
         }
-
 

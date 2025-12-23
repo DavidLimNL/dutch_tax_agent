@@ -21,7 +21,7 @@ def sample_dutch_text() -> str:
 
 @pytest.fixture
 def sample_us_broker_text() -> str:
-    """Sample US broker statement text."""
+    """Sample investment broker statement text."""
     return """
     Interactive Brokers Statement
     Date: January 1, 2024

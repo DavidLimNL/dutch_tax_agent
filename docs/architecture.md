@@ -23,7 +23,7 @@ graph TD
         SafeData --> Dispatcher{Dispatcher Node}
         
         Dispatcher -->|Send Doc A| DutchAgent[Dutch Parser Agent]
-        Dispatcher -->|Send Doc B| USAgent[US Broker Agent]
+        Dispatcher -->|Send Doc B| InvestmentAgent[Investment Broker Agent]
         Dispatcher -->|Send Doc C| SalaryAgent[Income Agent]
         
         DutchAgent --> ValidatorA[Validator & Currency Tool]

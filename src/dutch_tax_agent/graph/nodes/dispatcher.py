@@ -247,10 +247,10 @@ def dispatcher_node(state: TaxGraphState) -> Command:
         if classification.doc_type == "dutch_bank_statement":
             target_node = "dutch_parser"
         elif classification.doc_type == "us_broker_statement":
-            target_node = "us_broker_parser"
+            target_node = "investment_broker_parser"
         elif classification.doc_type == "crypto_broker_statement":
-            # Crypto brokers also have cash (fiat) and crypto holdings, similar to US brokers
-            target_node = "us_broker_parser"
+            # Crypto brokers also have cash (fiat) and crypto holdings, similar to investment brokers
+            target_node = "investment_broker_parser"
         elif classification.doc_type == "salary_statement":
             target_node = "salary_parser"
         elif classification.doc_type == "mortgage_statement":

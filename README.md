@@ -29,11 +29,11 @@ graph TD
         SafeData --> Dispatcher(Dispatcher Node LLM)
         
         Dispatcher -->|Send Doc A| DutchAgent(Dutch Parser Agent LLM)
-        Dispatcher -->|Send Doc B| USAgent(US Broker Agent LLM)
+        Dispatcher -->|Send Doc B| InvestmentAgent(Investment Broker Agent LLM)
         Dispatcher -->|Send Doc C| SalaryAgent(Income Agent LLM)
         
         DutchAgent --> ValidatorA[Validator & Currency Tool]
-        USAgent --> ValidatorB[Validator & Currency Tool]
+        InvestmentAgent --> ValidatorB[Validator & Currency Tool]
         SalaryAgent --> ValidatorC[Validator & Currency Tool]
         
         ValidatorA --> Aggregate[Aggregator Node]
@@ -60,7 +60,7 @@ graph TD
 
     style Dispatcher fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style DutchAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
-    style USAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style InvestmentAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style SalaryAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style Compare fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
 ```
@@ -170,7 +170,7 @@ dutch_tax_agent/
 │       │   │       └── start_box3.py             # Box 3 entry point
 │       │   └── agents/                # LLM-based parser agents
 │       │       ├── dutch_parser.py
-│       │       ├── us_broker_parser.py
+│       │       ├── investment_broker_parser.py
 │       │       └── salary_parser.py
 │       ├── tools/                     # Deterministic tools
 │       │   ├── currency.py            # ECB rate fetching
