@@ -239,6 +239,55 @@ class NameRecognizer(PatternRecognizer):
                             score=0.95,
                         )
                     )
+                    
+                    # Pattern 7c: Middle + Last (with spaces)
+                    # Use word boundary pattern for middle name to handle punctuation
+                    escaped_middle = self._escape_regex(middle_combo)
+                    escaped_last = self._escape_regex(last)
+                    has_punctuation = any(char in middle_combo for char in '.!?,;:')
+                    if has_punctuation:
+                        # Use negative lookbehind for middle name start, word boundary for last name end
+                        middle_last_pattern = (
+                            r"(?i)(?<!\w)" + escaped_middle + r"\s+" + escaped_last + r"\b"
+                        )
+                    else:
+                        # Use standard word boundaries
+                        middle_last_pattern = (
+                            r"(?i)\b" + escaped_middle + r"\s+" + escaped_last + r"\b"
+                        )
+                    patterns.append(
+                        Pattern(
+                            name=f"middle_last_{middle_combo.replace(' ', '_')}_{last}",
+                            regex=middle_last_pattern,
+                            score=0.90,  # High confidence for middle+last together
+                        )
+                    )
+                    
+                    # Pattern 7d: Middle + Last (concatenated)
+                    middle_last_concatenated = middle_combo.replace(" ", "") + last
+                    middle_last_concatenated_pattern = self._build_word_boundary_pattern(middle_last_concatenated)
+                    patterns.append(
+                        Pattern(
+                            name=f"middle_last_concatenated_{middle_combo.replace(' ', '_')}_{last}",
+                            regex=middle_last_concatenated_pattern,
+                            score=0.90,
+                        )
+                    )
+            
+            # Pattern 7e: Middle names alone (all combinations if middle exists)
+            if middle_list:
+                middle_combinations = self._get_middle_combinations(middle_list)
+                for middle_combo in middle_combinations:
+                    # Pattern 7e: Middle name(s) alone (with spaces if multiple)
+                    # Use word boundary pattern that handles punctuation correctly
+                    middle_alone_pattern = self._build_word_boundary_pattern(middle_combo)
+                    patterns.append(
+                        Pattern(
+                            name=f"middle_alone_{middle_combo.replace(' ', '_')}",
+                            regex=middle_alone_pattern,
+                            score=0.85,  # Slightly lower to reduce false positives for common words
+                        )
+                    )
             
             # Pattern 8: Reversed concatenated full name
             # Matches: "EODNHOJ" (reversed "JOHNDOE")
@@ -279,6 +328,31 @@ class NameRecognizer(PatternRecognizer):
         """
         import re
         return re.escape(text)
+    
+    def _build_word_boundary_pattern(self, text: str) -> str:
+        """Build a pattern with word boundaries that work with punctuation.
+        
+        Uses negative lookbehind/lookahead instead of \b when text contains
+        punctuation, as \b doesn't work correctly after periods.
+        
+        Args:
+            text: Text to create pattern for
+            
+        Returns:
+            Regex pattern with appropriate word boundaries
+        """
+        escaped = self._escape_regex(text)
+        # Check if text contains punctuation (periods, commas, etc.)
+        has_punctuation = any(char in text for char in '.!?,;:')
+        
+        if has_punctuation:
+            # Use negative lookbehind/lookahead for better punctuation handling
+            # (?<!\w) = not preceded by word character
+            # (?=\s|$|<) = followed by space, end of string, or tag
+            return r"(?i)(?<!\w)" + escaped + r"(?=\s|$|<)"
+        else:
+            # Use standard word boundaries for text without punctuation
+            return r"(?i)\b" + escaped + r"\b"
 
     def validate_result(self, pattern_text: str) -> Optional[bool]:
         """Validate that the matched text is actually a name.
@@ -320,6 +394,14 @@ class NameRecognizer(PatternRecognizer):
                 middle_combinations = self._get_middle_combinations(middle_list)
                 for middle_combo in middle_combinations:
                     if text_upper == f"{first} {middle_combo} {last}" or text_upper == f"{first}{middle_combo.replace(' ', '')}{last}":
+                        return True
+                    
+                    # Check middle + last combination
+                    if text_upper == f"{middle_combo} {last}" or text_upper == f"{middle_combo.replace(' ', '')}{last}":
+                        return True
+                    
+                    # Check middle name(s) alone
+                    if text_upper == middle_combo:
                         return True
             
             # Check reversed variations
