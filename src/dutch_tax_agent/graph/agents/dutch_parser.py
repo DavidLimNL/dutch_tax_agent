@@ -58,6 +58,7 @@ IMPORTANT INSTRUCTIONS:
 4. If the statement shows BOTH dates in separate columns (e.g., "Balance 31-12-2023" and "Balance 31-12-2024"):
    - value_eur_jan1 = value from the PREVIOUS year's Dec 31 column (e.g., 31-12-2023)
    - value_eur_dec31 = value from the CURRENT year's Dec 31 column (e.g., 31-12-2024)
+   - ⚠️ CRITICAL FOR MORTGAGES: When extracting mortgages (hypotheek), you MUST extract BOTH columns if both dates are shown. Do NOT skip the Dec 31 column even if the format is unusual (e.g., dates on a separate line above the data)
 5. If the statement only shows one date, extract that value and set the other to null
 6. Identify the account type:
    - "savings" for savings accounts (spaarrekening) - dedicated savings accounts
@@ -66,6 +67,8 @@ IMPORTANT INSTRUCTIONS:
    - "bonds" for bond holdings
    - "crypto" for cryptocurrency accounts
    - "mortgage" for mortgage balances (hypotheek) on second homes - MUST use "mortgage" not "debt"
+     * Note: Mortgage balances are typically NEGATIVE values (they represent debt/liabilities)
+     * When a table shows both 31-12-2023 and 31-12-2024 columns, you MUST extract BOTH values
    - "debt" for credit card balances (creditcard) and other non-mortgage debts
    - "other" for any other asset types
 7. Extract each account type separately (e.g., if there's a savings account, a current account, a mortgage, and a credit card, create FOUR separate items)
@@ -113,6 +116,7 @@ DATE MAPPING RULES:
   * value_eur_dec31 = value from the 31-12-2024 column (current year's Dec 31)
   * reference_date = "2024-01-01" (the tax year's Jan 1)
   * dec31_reference_date = "2024-12-31" (the actual Dec 31 date shown)
+  * ⚠️ MANDATORY FOR MORTGAGES: You MUST extract BOTH columns when both dates are present, regardless of table format
   * Example: Table with columns "Balance 31-12-2023 | Balance 31-12-2024" showing "10.000,00 | 8.500,50":
     → CORRECT: value_eur_jan1=10000.00, value_eur_dec31=8500.50, reference_date="2024-01-01", dec31_reference_date="2024-12-31"
     → WRONG: value_eur_jan1=8500.50, value_eur_dec31=10000.00 (values are swapped - using wrong column!)
