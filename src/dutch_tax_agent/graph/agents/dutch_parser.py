@@ -43,7 +43,9 @@ def dutch_parser_agent(input_data: dict) -> dict:
 
 CRITICAL: Dutch banks often have multiple account types that MUST be extracted as SEPARATE items:
 1. SAVINGS accounts (spaarrekening) - cash deposits, savings
+   * Recognized by labels such as: "spaarrekening", "Direct Savings", "Savings Account", "Savings", "Spaarrekening", or any account explicitly labeled as a savings account
 2. CURRENT/CHECKING accounts (betaalrekening) - transaction accounts, checking accounts
+   * Recognized by labels such as: "betaalrekening", "Personal account", "Checking Account", "Current Account", "Transaction Account", or any account explicitly labeled as a checking/current account
 3. INVESTMENT accounts (beleggingsrekening) - stocks, bonds, ETFs, mutual funds
 4. CRYPTO accounts (if applicable)
 5. MORTGAGE balances (hypotheek) - mortgage debt on second homes (primary residence is Box 1, not Box 3)
@@ -60,9 +62,18 @@ IMPORTANT INSTRUCTIONS:
    - value_eur_dec31 = value from the CURRENT year's Dec 31 column (e.g., 31-12-2024)
    - ⚠️ CRITICAL FOR MORTGAGES: When extracting mortgages (hypotheek), you MUST extract BOTH columns if both dates are shown. Do NOT skip the Dec 31 column even if the format is unusual (e.g., dates on a separate line above the data)
 5. If the statement only shows one date, extract that value and set the other to null
-6. Identify the account type:
+6. ⚠️ CRITICAL: Table structure handling ⚠️:
+   - Account labels (e.g., "Personal account", "Direct Savings") may appear on SEPARATE LINES from their balance values
+   - When you see an account label, you MUST find the corresponding balance values in the SAME table section
+   - Look for values on lines ABOVE or BELOW the account label - they belong to that account
+   - If a table has a header row with dates (e.g., "Balance 31-12-2023 | Balance 31-12-2024"), match each account label to the values in the rows immediately before or after it
+   - Example: If you see "10.000,00 8.500,50" on one line and "Direct Savings" on the next line, those values belong to the Direct Savings account
+   - NEVER create an account item without extracting its balance values - if you can't find values for an account label, look more carefully in the surrounding lines
+7. Identify the account type:
    - "savings" for savings accounts (spaarrekening) - dedicated savings accounts
+     * Includes accounts labeled as: "spaarrekening", "Direct Savings", "Savings Account", "Savings", "Spaarrekening", or any account explicitly labeled as a savings account
    - "checking" for current/checking accounts (betaalrekening) - transaction/checking accounts (also called personal accounts)
+     * Includes accounts labeled as: "betaalrekening", "Personal account", "Checking Account", "Current Account", "Transaction Account", or any account explicitly labeled as a checking/current account
    - "stocks" for investment accounts (beleggingsrekening) with stocks, ETFs, mutual funds
    - "bonds" for bond holdings
    - "crypto" for cryptocurrency accounts
@@ -71,11 +82,14 @@ IMPORTANT INSTRUCTIONS:
      * When a table shows both 31-12-2023 and 31-12-2024 columns, you MUST extract BOTH values
    - "debt" for credit card balances (creditcard) and other non-mortgage debts
    - "other" for any other asset types
-7. Extract each account type separately (e.g., if there's a savings account, a current account, a mortgage, and a credit card, create FOUR separate items)
-8. Look for realized gains, dividends, or interest income during the year
-9. Extract account number or IBAN if available - this is critical for matching accounts across different statements
-10. All amounts should be in EUR
-11. Return ONLY valid JSON, no additional text
+8. Extract each account type separately (e.g., if there's a savings account, a current account, a mortgage, and a credit card, create FOUR separate items)
+   - ⚠️ MANDATORY: Each account item MUST have at least one value (value_eur_jan1 OR value_eur_dec31)
+   - If you identify an account type but cannot find its balance values, DO NOT create an item for it - look more carefully in the document
+   - Only create items when you can extract actual balance values
+9. Look for realized gains, dividends, or interest income during the year
+10. Extract account number or IBAN if available - this is critical for matching accounts across different statements
+11. All amounts should be in EUR
+12. Return ONLY valid JSON, no additional text
 
 ⚠️ CRITICAL: European number format parsing ⚠️:
 - Dots (.) are THOUSANDS separators, NOT decimal points
@@ -103,7 +117,7 @@ Return JSON in this EXACT format:
       "reference_date": "YYYY-MM-DD" (the date of the value_eur_jan1, or closest to Jan 1),
       "dec31_reference_date": "YYYY-MM-DD" or null (the date of the value_eur_dec31, or closest to Dec 31),
       "description": "Account name or description (e.g., 'ING Spaarrekening', 'ABN AMRO Betaalrekening', 'ING Hypotheek', 'Creditcard ING')",
-      "account_number": "Account number or IBAN if available (e.g., 'NL91ABNA0417164300', '123456789') or null",
+      "account_number": "Account number or IBAN if available (e.g., 'NL12ABCD1234567890', '123456789') or null",
       "original_currency": "EUR",
       "extraction_confidence": <0.0 to 1.0>
     }}
@@ -140,6 +154,26 @@ Example 2: Statement showing €20,000 in savings, €5,000 in current account, 
     * asset_type="checking", value_eur_jan1=5000, value_eur_dec31=5000, description="ING Betaalrekening"
     * asset_type="stocks", value_eur_jan1=30000, value_eur_dec31=30000, description="ABN AMRO Beleggingsrekening"
     * asset_type="mortgage", value_eur_jan1=150000, value_eur_dec31=150000, description="ING Hypotheek"
+
+Example 3: Statement showing "Direct Savings" account with balances (account label on separate line from values):
+  Table structure:
+  "Balance 31-12-2023 | Balance 31-12-2024"
+  "10.000,00         | 8.500,50"
+  "Direct Savings"
+  → Extract ONE item:
+    * asset_type="savings", value_eur_jan1=10000.00, value_eur_dec31=8500.50, description="Direct Savings", reference_date="2024-01-01", dec31_reference_date="2024-12-31"
+  Note: Even though "Direct Savings" is on a separate line from the values, you MUST match them together and extract the values
+
+Example 4: Statement with IBAN and values on one line, account label on next line:
+  "IBAN"
+  "15.000,00 12.500,00"
+  "Personal account"
+  "IBAN"
+  "10.000,00 8.500,50"
+  "Direct Savings"
+  → Extract TWO items:
+    * asset_type="checking", value_eur_jan1=15000.00, value_eur_dec31=12500.00, description="Personal account", account_number="IBAN"
+    * asset_type="savings", value_eur_jan1=10000.00, value_eur_dec31=8500.50, description="Direct Savings", account_number="IBAN"
 
 If no Box 3 data is found, return: {{"box3_items": [], "document_date_range": {{"start_date": null, "end_date": null}}}}
 """
