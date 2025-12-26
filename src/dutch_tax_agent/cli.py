@@ -269,23 +269,52 @@ def sessions(
 
 @app.command()
 def reset(
-    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Session ID to delete"),
+    thread_id: Optional[str] = typer.Option(None, "--thread-id", "-t", help="Session ID to delete"),
+    all: bool = typer.Option(False, "--all", "-a", help="Delete all sessions"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
-    """Delete a session."""
+    """Delete a session or all sessions."""
     
-    if not force:
-        confirmed = typer.confirm(f"Delete session {thread_id}?")
-        if not confirmed:
-            console.print("Cancelled")
-            raise typer.Exit(0)
+    if not all and not thread_id:
+        console.print("[red]Error: Must specify --thread-id or --all[/red]")
+        raise typer.Exit(1)
+    
+    if all and thread_id:
+        console.print("[red]Error: Cannot specify both --thread-id and --all[/red]")
+        raise typer.Exit(1)
     
     session_manager = SessionManager()
     
     try:
-        session_manager.delete_session(thread_id)
-        console.print(f"[green]✓[/green] Deleted session: {thread_id}")
-        console.print("[dim]Note: Checkpoint data remains in database[/dim]")
+        if all:
+            # List sessions first to show what will be deleted
+            sessions = session_manager.list_sessions(active_only=False)
+            if not sessions:
+                console.print("[dim]No sessions to delete[/dim]")
+                return
+            
+            if not force:
+                console.print(f"\n[yellow]Warning: This will delete {len(sessions)} session(s):[/yellow]")
+                for session in sessions:
+                    console.print(f"  • {session['thread_id']}")
+                confirmed = typer.confirm("\nDelete ALL sessions?")
+                if not confirmed:
+                    console.print("Cancelled")
+                    raise typer.Exit(0)
+            
+            count = session_manager.delete_all_sessions()
+            console.print(f"[green]✓[/green] Deleted {count} session(s)")
+            console.print("[dim]Note: Checkpoint data remains in database[/dim]")
+        else:
+            if not force:
+                confirmed = typer.confirm(f"Delete session {thread_id}?")
+                if not confirmed:
+                    console.print("Cancelled")
+                    raise typer.Exit(0)
+            
+            session_manager.delete_session(thread_id)
+            console.print(f"[green]✓[/green] Deleted session: {thread_id}")
+            console.print("[dim]Note: Checkpoint data remains in database[/dim]")
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         raise typer.Exit(1)

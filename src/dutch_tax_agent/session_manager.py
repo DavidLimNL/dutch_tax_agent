@@ -148,6 +148,24 @@ class SessionManager:
         else:
             logger.warning(f"Session {thread_id} not found in registry")
     
+    def delete_all_sessions(self) -> int:
+        """Delete all sessions from registry.
+        
+        Note: This does NOT delete the checkpoint data itself, only the registry entries.
+        
+        Returns:
+            Number of sessions deleted
+        """
+        registry = self._load_registry()
+        count = len(registry)
+        
+        if count > 0:
+            registry.clear()
+            self._save_registry(registry)
+            logger.info(f"Deleted all {count} sessions from registry")
+        
+        return count
+    
     def get_current_state(
         self, 
         checkpointer: BaseCheckpointSaver,
