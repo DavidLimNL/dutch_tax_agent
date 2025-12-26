@@ -159,12 +159,7 @@ Potential future enhancements:
 - CLI `process` command removed (use `ingest` + `calculate`)
 - Default checkpoint backend changed from `memory` to `sqlite`
 - `DutchTaxAgent` constructor signature changed (`thread_id` now first parameter)
-
-### Backward Compatibility
-Legacy one-shot mode preserved:
-```bash
-python -m dutch_tax_agent.main --input-dir ./sample_docs
-```
+- Legacy `main.py` CLI removed; use modern `dutch-tax-agent` CLI instead
 
 ### Storage Locations
 ```

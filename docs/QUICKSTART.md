@@ -112,13 +112,7 @@ uv run python -m dutch_tax_agent.cli process --input-dir ~/Documents/taxes_2024 
 uv run python -m dutch_tax_agent.cli version
 ```
 
-### Option B: Using the Main Script
-
-```bash
-uv run python -m dutch_tax_agent.main
-```
-
-### Option C: As a Python Library
+### Option B: As a Python Library
 
 ```python
 from pathlib import Path
@@ -130,17 +124,21 @@ agent = DutchTaxAgent(tax_year=2024)
 # Or disable fiscal partner
 # agent = DutchTaxAgent(tax_year=2024, has_fiscal_partner=False)
 
-# Process documents
+# Ingest documents (creates new session)
 pdf_files = [
     Path("sample_docs/bank_statement.pdf"),
     Path("sample_docs/salary.pdf"),
 ]
 
-result = agent.process_documents(pdf_files)
+state = agent.ingest_documents(pdf_files, is_initial=True)
 
-# Access results
-print(f"Box 1 Total: €{result.box1_total_income:,.2f}")
-print(f"Box 3 Total: €{result.box3_total_assets_jan1:,.2f}")
+# View status
+status = agent.get_status()
+print(f"Box 1 Total: €{status['box1_total']:,.2f}")
+print(f"Box 3 Total: €{status['box3_total']:,.2f}")
+
+# Calculate taxes
+final_state = agent.calculate_taxes()
 ```
 
 ## Step 6: Understanding the Output

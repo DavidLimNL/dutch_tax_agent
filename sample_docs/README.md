@@ -40,6 +40,9 @@ cp ~/Downloads/bank_statement_2024.pdf sample_docs/
 cp ~/Downloads/salary_jan_2024.pdf sample_docs/
 
 # Run the agent
-uv run python -m dutch_tax_agent.main --input-dir sample_docs
+uv run dutch-tax-agent ingest -i sample_docs --year 2024
+
+# Note the thread ID, then calculate
+uv run dutch-tax-agent calculate -t tax2024-abc123
 ```
 

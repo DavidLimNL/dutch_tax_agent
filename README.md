@@ -137,19 +137,19 @@ uv run dutch-tax-agent sessions
 
 See [HITL Workflow Documentation](./docs/hitl_workflow.md) for complete guide.
 
-#### One-Shot Mode (Legacy)
+#### One-Shot Mode (Process Everything at Once)
 
-Process all documents and calculate in one command:
+You can also ingest and calculate in a single workflow by chaining commands:
 
 ```bash
-# Process tax documents (fiscal partner assumed by default)
-uv run python -m dutch_tax_agent.main --input-dir ./sample_docs
+# Get the thread ID from ingest, then calculate immediately
+THREAD_ID=$(uv run dutch-tax-agent ingest -i ./sample_docs --year 2024 | grep -oP 'tax2024-\w+')
+uv run dutch-tax-agent calculate -t $THREAD_ID
 
-# Disable fiscal partner optimization
-uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --no-fiscal-partner
-
-# Specify tax year
-uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --year 2023
+# Or manually with specific thread ID
+uv run dutch-tax-agent ingest -i ./sample_docs --year 2024
+# Note the thread ID output (e.g., tax2024-abc123)
+uv run dutch-tax-agent calculate -t tax2024-abc123
 ```
 
 ## 💾 Checkpointing & State Management
