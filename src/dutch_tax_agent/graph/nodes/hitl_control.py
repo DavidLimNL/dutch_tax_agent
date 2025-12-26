@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "start_box3", "__end__"]]:
     """Human-in-the-loop control node.
     
-    This node pauses execution and waits for human commands, then routes
-    the graph based on the user's next action:
-    - "await_human" → Pause (goto END)
-    - "ingest_more" → Loop back to dispatcher for more documents
-    - "calculate" → Proceed to Box 3 calculation
+    This node is interrupted BEFORE execution (via interrupt_before in graph compilation).
+    When resumed, it re-executes and evaluates next_action to determine routing:
+    - "await_human" → Return with status update (graph will interrupt before re-execution)
+    - "ingest_more" → Route to dispatcher to process new documents
+    - "calculate" → Route to start_box3 to begin tax calculation
     
     Args:
         state: Current graph state
@@ -29,13 +29,14 @@ def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "st
     
     if state.next_action == "await_human":
         # Pause and wait for human command
+        # The graph will interrupt before this node on next invocation
         logger.info("⏸  Pausing execution - awaiting human command")
         return Command(
             update={
                 "status": "awaiting_human",
                 "paused_at_node": "hitl_control",
-            },
-            goto="__end__"
+            }
+            # No goto needed - interrupt_before will pause before re-execution
         )
     
     elif state.next_action == "ingest_more":
@@ -51,8 +52,8 @@ def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "st
                     "paused_at_node": "hitl_control",
                     "next_action": "await_human",  # Reset to await
                     "validation_warnings": state.validation_warnings + ["No new documents to process"]
-                },
-                goto="__end__"
+                }
+                # Graph will interrupt before re-execution of this node
             )
         
         return Command(
@@ -76,8 +77,8 @@ def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "st
                     "validation_errors": state.validation_errors + [
                         "Cannot proceed to calculation - critical data validation failed"
                     ]
-                },
-                goto="__end__"
+                }
+                # Graph will interrupt before re-execution of this node
             )
         
         # Check if we have any Box 3 assets
@@ -89,8 +90,8 @@ def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "st
                     "validation_warnings": state.validation_warnings + [
                         "No Box 3 assets found - Box 3 calculation skipped"
                     ]
-                },
-                goto="__end__"
+                }
+                # Graph will interrupt before re-execution of this node
             )
         
         # All checks passed - proceed to Box 3
@@ -105,12 +106,12 @@ def hitl_control_node(state: TaxGraphState) -> Command[Literal["dispatcher", "st
         # Unknown action - error state
         logger.error(f"Unknown next_action: {state.next_action}")
         return Command(
-            update={
-                "status": "error",
-                "validation_errors": state.validation_errors + [
-                    f"Invalid next_action: {state.next_action}"
-                ]
-            },
-            goto="__end__"
-        )
+                update={
+                    "status": "error",
+                    "validation_errors": state.validation_errors + [
+                        f"Invalid next_action: {state.next_action}"
+                    ]
+                }
+                # Graph will interrupt before re-execution of this node
+            )
 

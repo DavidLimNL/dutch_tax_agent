@@ -208,15 +208,28 @@ def dispatcher_node(state: TaxGraphState) -> Command:
     classified_docs = []
     quarantined_docs = []
     sends = []
+    
+    # Track which documents have already been classified in this state
+    # (for safety in case dispatcher is called multiple times in same execution)
+    already_classified_doc_ids = {
+        classified_doc["doc_id"] 
+        for classified_doc in state.classified_documents
+    }
+    
+    logger.debug(
+        f"Found {len(already_classified_doc_ids)} already classified documents: {already_classified_doc_ids}"
+    )
 
     for doc in state.documents:
         # Skip documents that have already been classified
         # This prevents duplicate LLM calls when dispatcher is called multiple times
         if doc.doc_id in already_classified_doc_ids:
-            logger.debug(
+            logger.info(
                 f"Skipping doc {doc.doc_id} ({doc.filename}) - already classified"
             )
             continue
+        
+        logger.info(f"Processing new document: {doc.doc_id} ({doc.filename})")
 
         # Classify the document (includes type and tax year extraction)
         # Pass tax_year to help distinguish between dec_period and dec_prev_year

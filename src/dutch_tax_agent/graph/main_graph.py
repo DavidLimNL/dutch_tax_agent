@@ -203,7 +203,12 @@ def create_tax_graph() -> StateGraph:
     checkpointer = create_checkpointer()
     if checkpointer:
         logger.info("Compiling graph with checkpointing enabled")
-        return graph.compile(checkpointer=checkpointer)
+        # Use interrupt_before for hitl_control so the graph pauses BEFORE this node executes
+        # When we update state and resume, hitl_control will re-execute with the new state
+        return graph.compile(
+            checkpointer=checkpointer,
+            interrupt_before=["hitl_control"]
+        )
     else:
         logger.info("Compiling graph without checkpointing")
         return graph.compile()

@@ -38,7 +38,7 @@ class DocumentManager:
         pdf_paths: list[Path], 
         processed_docs: list[dict]
     ) -> list[Path]:
-        """Filter out already-processed documents based on hash.
+        """Filter out already-processed documents based on hash and ID.
         
         Args:
             pdf_paths: List of PDF file paths to check
@@ -47,17 +47,24 @@ class DocumentManager:
         Returns:
             List of new (unprocessed) PDF paths
         """
-        # Extract hashes of already processed documents
+        # Extract hashes and IDs of already processed documents
         processed_hashes = {doc["hash"] for doc in processed_docs}
+        processed_ids = {doc["id"] for doc in processed_docs}
         
         new_documents = []
         for pdf_path in pdf_paths:
             doc_hash = self.hash_pdf(pdf_path)
-            if doc_hash not in processed_hashes:
+            doc_id = doc_hash[:12]  # Same ID generation logic as create_document_metadata
+            
+            # Check both hash and ID to prevent duplicates
+            if doc_hash not in processed_hashes and doc_id not in processed_ids:
                 new_documents.append(pdf_path)
                 logger.info(f"New document found: {pdf_path.name} (hash: {doc_hash[:12]})")
             else:
-                logger.info(f"Skipping already processed document: {pdf_path.name}")
+                if doc_hash in processed_hashes:
+                    logger.info(f"Skipping already processed document (by hash): {pdf_path.name}")
+                elif doc_id in processed_ids:
+                    logger.info(f"Skipping already processed document (by ID): {pdf_path.name}")
         
         return new_documents
     
@@ -120,31 +127,82 @@ class DocumentManager:
         Returns:
             Dict with updated totals and filtered items
         """
+        removed_doc_ids_set = set(removed_doc_ids)
+        
         # Filter out items from removed documents
         updated_box1_items = [
             item for item in box1_items 
-            if item.source_document_id not in removed_doc_ids
+            if item.source_doc_id not in removed_doc_ids_set
         ]
         
         updated_box3_items = [
             item for item in box3_items
-            if item.source_document_id not in removed_doc_ids
+            if item.source_doc_id not in removed_doc_ids_set
         ]
         
+        # Deduplicate Box 3 assets (same account_number, same source_doc_id, same values)
+        # This handles cases where duplicates might exist due to processing issues
+        deduplicated_box3_items = self._deduplicate_box3_assets(updated_box3_items)
+        
         # Recalculate totals
-        box1_total = sum(item.amount_eur for item in updated_box1_items)
-        box3_total = sum(item.balance_jan1_eur for item in updated_box3_items)
+        box1_total = sum(item.gross_amount_eur for item in updated_box1_items)
+        box3_total = sum(item.value_eur_jan1 for item in deduplicated_box3_items)
         
         logger.info(
-            f"Recalculated totals - Box 1: €{box1_total:,.2f}, Box 3: €{box3_total:,.2f}"
+            f"Recalculated totals - Box 1: €{box1_total:,.2f}, Box 3: €{box3_total:,.2f} "
+            f"(removed {len(box3_items) - len(deduplicated_box3_items)} duplicate assets)"
         )
         
         return {
             "box1_income_items": updated_box1_items,
-            "box3_asset_items": updated_box3_items,
+            "box3_asset_items": deduplicated_box3_items,
             "box1_total_income": box1_total,
             "box3_total_assets_jan1": box3_total,
         }
+    
+    def _deduplicate_box3_assets(self, assets: list[Box3Asset]) -> list[Box3Asset]:
+        """Remove duplicate Box 3 assets.
+        
+        Two assets are considered duplicates if they have:
+        - Same source_doc_id
+        - Same account_number (or both None)
+        - Same asset_type
+        - Same value_eur_jan1 (within 0.01 tolerance)
+        - Same value_eur_dec31 (within 0.01 tolerance, or both None)
+        
+        Args:
+            assets: List of Box 3 assets
+            
+        Returns:
+            Deduplicated list of assets
+        """
+        seen = set()
+        deduplicated = []
+        
+        for asset in assets:
+            # Create a unique key for deduplication
+            account_key = asset.account_number or ""
+            jan1_key = round(asset.value_eur_jan1, 2)
+            dec31_key = round(asset.value_eur_dec31 or 0.0, 2)
+            
+            dedup_key = (
+                asset.source_doc_id,
+                account_key,
+                asset.asset_type,
+                jan1_key,
+                dec31_key
+            )
+            
+            if dedup_key not in seen:
+                seen.add(dedup_key)
+                deduplicated.append(asset)
+            else:
+                logger.debug(
+                    f"Removing duplicate asset: {asset.description} "
+                    f"(doc_id: {asset.source_doc_id}, account: {account_key})"
+                )
+        
+        return deduplicated
     
     def recalculate_from_extraction_results(
         self,
@@ -163,9 +221,10 @@ class DocumentManager:
             Dict with updated extraction results
         """
         # Filter out extraction results from removed documents
+        removed_doc_ids_set = set(removed_doc_ids)
         updated_results = [
             result for result in extraction_results
-            if result.document_id not in removed_doc_ids
+            if result.doc_id not in removed_doc_ids_set
         ]
         
         logger.info(

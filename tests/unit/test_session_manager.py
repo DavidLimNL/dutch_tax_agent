@@ -418,7 +418,7 @@ class TestGetStatus:
     
     def test_get_status_success(self, mock_graph: Mock, session_manager: SessionManager):
         """Test successful status retrieval."""
-        from dutch_tax_agent.main import DutchTaxAgent
+        from dutch_tax_agent.agent import DutchTaxAgent
         
         thread_id = "test-thread-status"
         
@@ -460,7 +460,7 @@ class TestGetStatus:
         mock_graph.checkpointer.get_tuple.return_value = checkpoint_tuple
         
         # Patch the graph creation
-        with patch('dutch_tax_agent.main.create_tax_graph', return_value=mock_graph):
+        with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
             agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
             agent.session_manager = session_manager
             
@@ -480,11 +480,11 @@ class TestGetStatus:
         self, mock_graph: Mock, session_manager: SessionManager
     ):
         """Test status when session doesn't exist in registry."""
-        from dutch_tax_agent.main import DutchTaxAgent
+        from dutch_tax_agent.agent import DutchTaxAgent
         
         thread_id = "non-existent"
         
-        with patch('dutch_tax_agent.main.create_tax_graph', return_value=mock_graph):
+        with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
             agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
             agent.session_manager = session_manager
             
@@ -497,7 +497,7 @@ class TestGetStatus:
         self, mock_graph: Mock, session_manager: SessionManager
     ):
         """Test status when session exists but checkpoint can't be parsed."""
-        from dutch_tax_agent.main import DutchTaxAgent
+        from dutch_tax_agent.agent import DutchTaxAgent
         
         thread_id = "test-thread-parse-fail"
         
@@ -513,7 +513,7 @@ class TestGetStatus:
         }
         mock_graph.checkpointer.get_tuple.return_value = checkpoint_tuple
         
-        with patch('dutch_tax_agent.main.create_tax_graph', return_value=mock_graph):
+        with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
             agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
             agent.session_manager = session_manager
             
@@ -528,7 +528,7 @@ class TestGetStatus:
         self, mock_graph: Mock, session_manager: SessionManager
     ):
         """Test status when session exists but no checkpoint."""
-        from dutch_tax_agent.main import DutchTaxAgent
+        from dutch_tax_agent.agent import DutchTaxAgent
         
         thread_id = "test-thread-no-checkpoint"
         
@@ -538,7 +538,7 @@ class TestGetStatus:
         # No checkpoint
         mock_graph.checkpointer.get_tuple.return_value = None
         
-        with patch('dutch_tax_agent.main.create_tax_graph', return_value=mock_graph):
+        with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
             agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
             agent.session_manager = session_manager
             

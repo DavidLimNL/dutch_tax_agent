@@ -258,11 +258,26 @@ class SessionManager:
             
             # Apply state updates
             logger.info(f"Applying state updates: {list(updates.keys())}")
+            if as_node:
+                logger.info(f"Applying updates as node: {as_node}")
             graph.update_state(config, updates, as_node=as_node)
             
             # Resume execution with None input (continues from checkpoint)
             logger.info(f"Resuming graph execution (thread: {thread_id})")
-            final_state = graph.invoke(None, config=config)
+            # Stream execution to see which nodes run
+            final_state = None
+            for event in graph.stream(None, config=config, stream_mode="updates"):
+                node_name = list(event.keys())[0] if event else "unknown"
+                logger.info(f"Graph executing node: {node_name}")
+                # Only update final_state from non-interrupt nodes
+                if node_name != "__interrupt__":
+                    final_state = list(event.values())[0] if event else None
+            
+            # If stream didn't yield any non-interrupt events, get state from checkpoint
+            if final_state is None:
+                logger.warning("Stream yielded no non-interrupt events, getting state from checkpoint")
+                from dutch_tax_agent.checkpoint_utils import get_checkpoint_state
+                final_state = get_checkpoint_state(graph.checkpointer, thread_id)
             
             # Update session metadata
             self.update_session(thread_id, {"last_updated": datetime.now(timezone.utc).isoformat()})

@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from dutch_tax_agent.main import DutchTaxAgent
+from dutch_tax_agent.agent import DutchTaxAgent
 from dutch_tax_agent.session_manager import SessionManager
 
 app = typer.Typer(

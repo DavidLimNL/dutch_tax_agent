@@ -122,7 +122,7 @@ uv run python -m dutch_tax_agent.main
 
 ```python
 from pathlib import Path
-from dutch_tax_agent.main import DutchTaxAgent
+from dutch_tax_agent import DutchTaxAgent
 
 # Create agent (fiscal partner assumed by default)
 agent = DutchTaxAgent(tax_year=2024)
