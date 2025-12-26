@@ -67,11 +67,14 @@ def create_checkpointer():
         logger.info(f"Using SqliteSaver for checkpointing: {settings.checkpoint_db_path}")
         try:
             from langgraph.checkpoint.sqlite import SqliteSaver
+            # Resolve path to expand ~ and get absolute path
+            db_path = settings.checkpoint_db_path.expanduser().resolve()
             # Ensure parent directory exists
-            settings.checkpoint_db_path.parent.mkdir(parents=True, exist_ok=True)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
             # from_conn_string returns a context manager, we need to enter it to get the instance
             # Store the context manager to keep the connection alive
-            cm = SqliteSaver.from_conn_string(str(settings.checkpoint_db_path))
+            # Use absolute path string to ensure SQLite can create the file
+            cm = SqliteSaver.from_conn_string(str(db_path))
             instance = cm.__enter__()
             # Store context manager to prevent garbage collection and connection closure
             _active_checkpointer_contexts.append(cm)
