@@ -9,7 +9,8 @@ A production-grade LangGraph application that automates Dutch tax filing while a
 - **Zero-Trust Data Policy**: PII is scrubbed before any LLM processing
 - **Parallel Document Processing**: Uses LangGraph's `Send` API for concurrent parsing
 - **LangGraph Checkpointing**: State persistence with 80-95% token usage reduction
-- **Human-in-the-Loop Ready**: Pause/resume workflows with checkpoint support
+- **Human-in-the-Loop (HITL)**: Iteratively add documents, review data, then calculate
+- **Session Management**: Pause/resume workflows, survives restarts with SQLite persistence
 - **Legal Compliance**: Handles Box 3 ambiguity by calculating both methods
 - **Deterministic Math**: All calculations done with Python tools, not LLM tokens
 - **Audit Trail**: Every extracted value links back to source documents
@@ -25,7 +26,7 @@ graph TD
         PII -->|Scrubbed Text| SafeData[Clean Document List]
     end
 
-    subgraph "Phase 2: The Graph (LangGraph Map-Reduce)"
+    subgraph "Phase 2: The Graph (LangGraph Map-Reduce + HITL)"
         SafeData --> Dispatcher(Dispatcher Node LLM)
         
         Dispatcher -->|Send Doc A| DutchAgent(Dutch Parser Agent LLM)
@@ -41,21 +42,20 @@ graph TD
         ValidatorC --> Aggregate
         
         Aggregate --> Reducer[Reducer Node]
+        Reducer --> HITL{HITL Control Node}
+        
+        HITL -->|await_human| Pause[END - Pause & Wait]
+        HITL -->|ingest_more| Dispatcher
+        HITL -->|calculate| StartBox3[Start Box 3]
     end
 
     subgraph "Phase 3: Box 3 Calculation & Optimization"
-        Reducer -->|Command: routes based on validation| Check{Reducer Routing}
-        
-        Check -->|Quarantine or No Assets| End1[END - Skip Box 3]
-        
-        Check -->|Valid & Has Assets| StartBox3[Start Box 3]
-        
         StartBox3 --> Statutory[Statutory Calculation<br/>Savings Variant / Legacy<br/>+ Fiscal Partner Optimization]
         StartBox3 --> Actual[Actual Return<br/>Hoge Raad Method<br/>+ Fiscal Partner Optimization]
         
         Statutory --> Compare(Comparison Node LLM)
         Actual --> Compare
-        Compare --> End2[END - Final State]
+        Compare --> End2[END - Complete]
     end
 
     style Dispatcher fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
@@ -63,6 +63,7 @@ graph TD
     style InvestmentAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style SalaryAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style Compare fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style HITL fill:#fff4e6,stroke:#ff9800,stroke-width:3px
 ```
 
 ## 🚀 Quick Start
@@ -109,6 +110,37 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 
 ### Run the Agent
 
+#### Human-in-the-Loop (HITL) Workflow (Recommended)
+
+The HITL workflow allows you to iteratively process documents and review data before calculation:
+
+```bash
+# Step 1: Process initial documents
+uv run dutch-tax-agent ingest --input-dir ./sample_docs --year 2024
+# Output: Session tax2024-abc123 created
+
+# Step 2: Check extracted data
+uv run dutch-tax-agent status --thread-id tax2024-abc123
+
+# Step 3: Add more documents (optional)
+uv run dutch-tax-agent ingest --input-dir ./more_docs --thread-id tax2024-abc123
+
+# Step 4: Remove wrong documents (optional)
+uv run dutch-tax-agent remove --thread-id tax2024-abc123 --doc-id a1b2c3d4e5f6
+
+# Step 5: Calculate taxes
+uv run dutch-tax-agent calculate --thread-id tax2024-abc123
+
+# List all sessions
+uv run dutch-tax-agent sessions
+```
+
+See [HITL Workflow Documentation](./docs/hitl_workflow.md) for complete guide.
+
+#### One-Shot Mode (Legacy)
+
+Process all documents and calculate in one command:
+
 ```bash
 # Process tax documents (fiscal partner assumed by default)
 uv run python -m dutch_tax_agent.main --input-dir ./sample_docs
@@ -118,46 +150,43 @@ uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --no-fiscal-part
 
 # Specify tax year
 uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --year 2023
-
-# Resume from checkpoint (for human-in-the-loop workflows)
-uv run python -m dutch_tax_agent.main --input-dir ./sample_docs --thread-id tax2024-abc123
-
-# Interactive mode
-uv run python -m dutch_tax_agent.cli process --input-dir ./sample_docs
-
-# With fiscal partner disabled
-uv run python -m dutch_tax_agent.cli process --input-dir ./sample_docs --no-fiscal-partner
 ```
 
 ## 💾 Checkpointing & State Management
 
-The agent uses LangGraph checkpointing to:
+The agent uses LangGraph checkpointing with SQLite for persistent state management:
 - **Reduce token usage by 80-95%** (documents cleared after extraction)
 - **Enable human-in-the-loop workflows** (pause/resume for review)
 - **Provide fault tolerance** (resume from failures)
+- **Session persistence** (survives application restarts)
 
 ### Configuration
 
-Add to `.env`:
+The agent defaults to SQLite checkpointing. In `.env`:
 
 ```bash
-ENABLE_CHECKPOINTING=true
-CHECKPOINT_BACKEND=memory  # Options: memory, sqlite, postgres
+ENABLE_CHECKPOINTING=true  # Default
+CHECKPOINT_BACKEND=sqlite  # Default (options: memory, sqlite, postgres)
+CHECKPOINT_DB_PATH=~/.dutch_tax_agent/checkpoints.db  # Default
 ```
 
-### Usage
+### HITL Session Management
 
-```python
-from dutch_tax_agent import DutchTaxAgent
+```bash
+# Process documents incrementally
+uv run dutch-tax-agent ingest -i ~/docs --year 2024
 
-# Auto-generates thread_id for checkpointing
-agent = DutchTaxAgent(tax_year=2024)
-result = agent.process_documents(pdf_files)
+# View session status
+uv run dutch-tax-agent status -t tax2024-abc123
 
-print(f"Thread ID: {agent.thread_id}")  # Save for later
+# List all sessions
+uv run dutch-tax-agent sessions
+
+# Calculate when ready
+uv run dutch-tax-agent calculate -t tax2024-abc123
 ```
 
-See [Checkpointing Documentation](./docs/checkpointing.md) for advanced usage.
+See [HITL Workflow Documentation](./docs/hitl_workflow.md) and [Checkpointing Documentation](./docs/checkpointing.md) for details.
 
 ## 📁 Project Structure
 

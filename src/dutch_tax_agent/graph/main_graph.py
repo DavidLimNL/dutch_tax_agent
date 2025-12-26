@@ -19,6 +19,7 @@ from dutch_tax_agent.graph.agents import (
 from dutch_tax_agent.graph.nodes import (
     aggregate_extraction_node,
     dispatcher_node,
+    hitl_control_node,
     reducer_node,
     validator_node,
 )
@@ -29,6 +30,21 @@ from dutch_tax_agent.graph.nodes.box3.statutory_calculation import statutory_cal
 from dutch_tax_agent.schemas.state import TaxGraphState
 
 logger = logging.getLogger(__name__)
+
+# Store context managers to keep database connections alive
+_active_checkpointer_contexts = []
+
+
+def get_active_checkpointer_contexts():
+    """Get the list of active checkpointer context managers.
+    
+    This is primarily for testing purposes to verify that context managers
+    are being stored and not garbage collected.
+    
+    Returns:
+        List of active context managers
+    """
+    return _active_checkpointer_contexts
 
 
 def create_checkpointer():
@@ -53,7 +69,13 @@ def create_checkpointer():
             from langgraph.checkpoint.sqlite import SqliteSaver
             # Ensure parent directory exists
             settings.checkpoint_db_path.parent.mkdir(parents=True, exist_ok=True)
-            return SqliteSaver.from_conn_string(str(settings.checkpoint_db_path))
+            # from_conn_string returns a context manager, we need to enter it to get the instance
+            # Store the context manager to keep the connection alive
+            cm = SqliteSaver.from_conn_string(str(settings.checkpoint_db_path))
+            instance = cm.__enter__()
+            # Store context manager to prevent garbage collection and connection closure
+            _active_checkpointer_contexts.append(cm)
+            return instance
         except ImportError:
             logger.warning(
                 "SqliteSaver not available. Install with: uv add langgraph-checkpoint-sqlite. "
@@ -69,7 +91,13 @@ def create_checkpointer():
             postgres_uri = os.getenv("POSTGRES_URI")
             if not postgres_uri:
                 raise ValueError("POSTGRES_URI environment variable required for postgres backend")
-            return PostgresSaver.from_conn_string(postgres_uri)
+            # from_conn_string returns a context manager, we need to enter it to get the instance
+            # Store the context manager to keep the connection alive
+            cm = PostgresSaver.from_conn_string(postgres_uri)
+            instance = cm.__enter__()
+            # Store context manager to prevent garbage collection and connection closure
+            _active_checkpointer_contexts.append(cm)
+            return instance
         except ImportError:
             logger.warning(
                 "PostgresSaver not available. Install with: uv add langgraph-checkpoint-postgres. "
@@ -83,23 +111,24 @@ def create_checkpointer():
 
 
 def create_tax_graph() -> StateGraph:
-    """Create the main tax processing graph.
+    """Create the main tax processing graph with HITL support.
     
     Graph flow:
     1. START -> dispatcher (routes documents via Command + Send)
     2. dispatcher -> parser agents (parallel via Send API in Command)
     3. parser agents -> validators (parallel)
     4. validators -> aggregator (collects results)
-    5. aggregator -> reducer (calculates totals, uses Command for routing)
-    6. reducer -> start_box3 OR END (via Command based on validation/assets)
-    7. start_box3 -> statutory_calculation (with optimization)
+    5. aggregator -> reducer (calculates totals)
+    6. reducer -> hitl_control (HITL pause/resume point)
+    7. hitl_control -> dispatcher (loop) OR start_box3 (calculate) OR END (pause)
+    8. start_box3 -> statutory_calculation (with optimization)
                  -> actual_return (with optimization, parallel branch)
-    8. statutory_calculation + actual_return -> comparison -> complete
+    9. statutory_calculation + actual_return -> comparison -> complete
     
     Returns:
         Compiled StateGraph
     """
-    logger.info("Creating main tax processing graph")
+    logger.info("Creating main tax processing graph with HITL support")
 
     # Create the main graph
     graph = StateGraph(TaxGraphState)
@@ -118,6 +147,9 @@ def create_tax_graph() -> StateGraph:
     # Aggregation and reduction
     graph.add_node("aggregate", aggregate_extraction_node)
     graph.add_node("reducer", reducer_node)
+    
+    # HITL control node (pause/resume point)
+    graph.add_node("hitl_control", hitl_control_node)
     
     # Box 3 calculation nodes
     graph.add_node("start_box3", start_box3_node)
@@ -143,8 +175,13 @@ def create_tax_graph() -> StateGraph:
     # Aggregator goes to reducer (documents cleared during aggregation)
     graph.add_edge("aggregate", "reducer")
     
-    # Reducer now uses Command for routing - no conditional edge needed
-    # The Command determines whether to go to "start_box3" or END based on validation/assets
+    # Reducer goes to HITL control (pause/resume point)
+    graph.add_edge("reducer", "hitl_control")
+    
+    # HITL control uses Command for routing:
+    # - goto="dispatcher" (loop for more documents)
+    # - goto="start_box3" (proceed to calculation)
+    # - goto=END (pause and wait)
     
     # Branch 1: Statutory Calculation (includes optimization)
     graph.add_edge("start_box3", "statutory_calculation")
@@ -160,7 +197,7 @@ def create_tax_graph() -> StateGraph:
     # Comparison completes the flow
     graph.add_edge("comparison", END)
 
-    logger.info("Main tax graph created successfully")
+    logger.info("Main tax graph created successfully with HITL support")
 
     # Compile with checkpointer
     checkpointer = create_checkpointer()

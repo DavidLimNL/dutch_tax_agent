@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
 from typing import Union
 
@@ -81,12 +81,12 @@ class Settings(BaseSettings):
     # Checkpointing Configuration
     enable_checkpointing: bool = Field(default=True, alias="ENABLE_CHECKPOINTING")
     checkpoint_backend: Literal["memory", "sqlite", "postgres"] = Field(
-        default="memory", 
+        default="sqlite", 
         alias="CHECKPOINT_BACKEND",
         description="Backend for checkpointing: memory (dev), sqlite (prod), postgres (enterprise)"
     )
     checkpoint_db_path: Path = Field(
-        default_factory=lambda: Path(__file__).parent.parent.parent / "data" / "checkpoints.db",
+        default_factory=lambda: Path.home() / ".dutch_tax_agent" / "checkpoints.db",
         alias="CHECKPOINT_DB_PATH",
         description="Path to SQLite checkpoint database (if using sqlite backend)"
     )
@@ -95,11 +95,10 @@ class Settings(BaseSettings):
     project_root: Path = Field(default_factory=lambda: Path(__file__).parent.parent.parent)
     data_dir: Path = Field(default_factory=lambda: Path(__file__).parent / "data")
 
-    class Config:
-        """Pydantic config."""
-
-        env_file = ".env"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+    )
 
 
 # Global settings instance

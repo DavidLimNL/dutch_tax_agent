@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from dutch_tax_agent.graph.nodes.box3.fictional_yield import calculate_fictional_yield
+from dutch_tax_agent.graph.nodes.box3.statutory_calculation import calculate_statutory_tax as calculate_fictional_yield
 from dutch_tax_agent.graph.nodes.box3.actual_return import calculate_actual_return
 from dutch_tax_agent.schemas.tax_entities import Box3Asset
 
@@ -38,7 +38,7 @@ def test_fictional_yield_calculation(sample_assets):
     """Test fictional yield calculation."""
     result = calculate_fictional_yield(sample_assets, 2024)
 
-    assert result.method == "fictional_yield"
+    assert result.method == "savings_variant"  # For 2024, uses savings variant method
     assert result.tax_year == 2024
     assert result.total_assets_jan1 == 80000.0
     assert result.net_wealth_jan1 == 80000.0

@@ -210,6 +210,14 @@ def dispatcher_node(state: TaxGraphState) -> Command:
     sends = []
 
     for doc in state.documents:
+        # Skip documents that have already been classified
+        # This prevents duplicate LLM calls when dispatcher is called multiple times
+        if doc.doc_id in already_classified_doc_ids:
+            logger.debug(
+                f"Skipping doc {doc.doc_id} ({doc.filename}) - already classified"
+            )
+            continue
+
         # Classify the document (includes type and tax year extraction)
         # Pass tax_year to help distinguish between dec_period and dec_prev_year
         classification = classify_document(doc.scrubbed_text, doc.doc_id, tax_year=state.tax_year)

@@ -1,9 +1,10 @@
-"""Main entry point for the Dutch Tax Agent."""
+"""Main entry point for the Dutch Tax Agent with HITL support."""
 
 import argparse
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -13,9 +14,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from dutch_tax_agent.checkpoint_utils import generate_thread_id
 from dutch_tax_agent.config import settings
+from dutch_tax_agent.document_manager import DocumentManager
 from dutch_tax_agent.graph import create_tax_graph
 from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
 from dutch_tax_agent.schemas.state import TaxGraphState
+from dutch_tax_agent.session_manager import SessionManager
 
 # Suppress all Presidio logging BEFORE basicConfig to prevent any output
 # Use NullHandler to completely silence Presidio loggers
@@ -73,15 +76,20 @@ logger = logging.getLogger(__name__)
 
 
 class DutchTaxAgent:
-    """Main orchestrator for the Dutch Tax Agent."""
+    """Main orchestrator for the Dutch Tax Agent with HITL support."""
 
-    def __init__(self, tax_year: int = 2024, has_fiscal_partner: bool = True, thread_id: Optional[str] = None) -> None:
+    def __init__(
+        self, 
+        thread_id: Optional[str] = None,
+        tax_year: int = 2024,
+        has_fiscal_partner: bool = True
+    ) -> None:
         """Initialize the tax agent.
         
         Args:
+            thread_id: Optional thread ID for checkpointing (generated if not provided)
             tax_year: Tax year to process (2022-2025)
             has_fiscal_partner: Whether to assume fiscal partnership (default: True)
-            thread_id: Optional thread ID for checkpointing (generated if not provided)
         """
         self.tax_year = tax_year
         self.has_fiscal_partner = has_fiscal_partner
@@ -89,22 +97,50 @@ class DutchTaxAgent:
         self.pdf_parser = PDFParser()
         self.pii_scrubber = PIIScrubber()
         self.graph = create_tax_graph()
+        self.document_manager = DocumentManager()
+        self.session_manager = SessionManager()
 
         logger.info(
             f"Initialized Dutch Tax Agent for tax year {tax_year} "
             f"(fiscal partner: {has_fiscal_partner}, thread: {self.thread_id})"
         )
 
-    def process_documents(self, pdf_paths: list[Path]) -> TaxGraphState:
-        """Process a list of PDF documents through the entire pipeline.
+    def ingest_documents(
+        self, 
+        pdf_paths: list[Path],
+        is_initial: bool = False
+    ) -> TaxGraphState:
+        """Ingest documents (initial or incremental).
         
         Args:
             pdf_paths: List of paths to PDF files
+            is_initial: If True, creates new session. If False, adds to existing session.
             
         Returns:
-            Final TaxGraphState with all calculations
+            TaxGraphState after ingestion (paused at HITL control)
         """
         console.print(f"\n[bold blue]🇳🇱 Dutch Tax Agent - Tax Year {self.tax_year}[/bold blue]\n")
+
+        # Get existing state if resuming
+        if not is_initial:
+            state = self.session_manager.get_current_state(
+                self.graph.checkpointer,
+                self.thread_id
+            )
+            if not state:
+                raise ValueError(f"Session {self.thread_id} not found. Use is_initial=True to create new session.")
+            
+            # Find new documents (skip already processed)
+            pdf_paths = self.document_manager.find_new_documents(
+                pdf_paths, 
+                state.processed_documents
+            )
+            
+            if not pdf_paths:
+                console.print("[yellow]⚠️  No new documents found[/yellow]")
+                return state
+
+        console.print(f"[bold]Processing {len(pdf_paths)} document(s)[/bold]\n")
 
         # Phase 1: Ingestion (Safe Zone)
         console.print("[bold]Phase 1: Document Ingestion & PII Scrubbing[/bold]")
@@ -117,9 +153,23 @@ class DutchTaxAgent:
             task = progress.add_task("Parsing PDFs...", total=len(pdf_paths))
 
             parsed_docs = []
+            doc_metadata = []
             for pdf_path in pdf_paths:
                 try:
+                    # Parse PDF
                     result = self.pdf_parser.parse(pdf_path)
+                    
+                    # Generate hash
+                    doc_hash = self.document_manager.hash_pdf(pdf_path)
+                    
+                    # Create metadata
+                    metadata = self.document_manager.create_document_metadata(
+                        filename=pdf_path.name,
+                        doc_hash=doc_hash,
+                        page_count=result["page_count"]
+                    )
+                    doc_metadata.append(metadata)
+                    
                     parsed_docs.append({
                         "text": result["text"],
                         "filename": pdf_path.name,
@@ -144,6 +194,8 @@ class DutchTaxAgent:
                         f"[yellow]⚠️[/yellow] Scrubbed {len(scrubbed_docs)}/{len(parsed_docs)} documents "
                         f"({len(parsed_docs) - len(scrubbed_docs)} failed scrubbing and were excluded)"
                     )
+                    # Remove metadata for failed documents
+                    doc_metadata = doc_metadata[:len(scrubbed_docs)]
                 else:
                     console.print(f"[green]✓[/green] Scrubbed PII from {len(scrubbed_docs)} documents")
             except RuntimeError as e:
@@ -157,8 +209,8 @@ class DutchTaxAgent:
         # logger.info(f"Scrubbed DOCS: {scrubbed_docs[0]}")
         # return
 
-        # Phase 2 & 3: LangGraph Processing
-        console.print("\n[bold]Phase 2: LangGraph Map-Reduce Extraction[/bold]")
+        # Phase 2: LangGraph Processing
+        console.print("\n[bold]Phase 2: LangGraph Extraction & Validation[/bold]")
 
         # Set up fiscal partner if assumed (default behavior)
         fiscal_partner = None
@@ -166,7 +218,6 @@ class DutchTaxAgent:
             from datetime import date
             from dutch_tax_agent.schemas.tax_entities import FiscalPartner
             # Default: Assume partner born after 1963 (no transferability, but can use own credit)
-            # User can override this if needed via future configuration
             fiscal_partner = FiscalPartner(
                 date_of_birth=date(1970, 1, 1),  # Default DOB (after 1963 threshold)
                 box1_income_gross=0.0,
@@ -174,47 +225,183 @@ class DutchTaxAgent:
             )
             logger.info("Fiscal partner assumed (default configuration)")
 
-        initial_state = TaxGraphState(
-            documents=scrubbed_docs,
-            tax_year=self.tax_year,
-            fiscal_partner=fiscal_partner,
+        # Build or update state
+        if is_initial:
+            # Create initial state
+            initial_state = TaxGraphState(
+                documents=scrubbed_docs,
+                tax_year=self.tax_year,
+                fiscal_partner=fiscal_partner,
+                session_id=self.thread_id,
+                next_action="await_human",
+                processed_documents=doc_metadata,
+                processing_started_at=datetime.now(timezone.utc).isoformat(),
+            )
+            
+            # Execute graph (will pause at HITL node)
+            config = {"configurable": {"thread_id": self.thread_id}}
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Running extraction pipeline...")
+                
+                try:
+                    if settings.enable_checkpointing:
+                        logger.info(f"Executing graph with checkpointing (thread: {self.thread_id})")
+                        console.print(f"[dim]Thread ID: {self.thread_id}[/dim]")
+                    else:
+                        logger.info("Executing graph without checkpointing")
+                    
+                    final_state_dict = self.graph.invoke(initial_state, config=config)
+                    # LangGraph returns dict, convert to TaxGraphState for type safety
+                    final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
+                    progress.update(task, description="Extraction complete!", completed=True)
+                except Exception as e:
+                    console.print(f"[red]❌ Graph execution failed: {e}[/red]")
+                    raise
+            
+            # Register session
+            self.session_manager.create_session(
+                self.thread_id,
+                self.tax_year,
+                self.has_fiscal_partner
+            )
+            
+        else:
+            # Incremental: update state and resume
+            state = self.session_manager.get_current_state(
+                self.graph.checkpointer,
+                self.thread_id
+            )
+            
+            updates = {
+                "documents": scrubbed_docs,
+                "processed_documents": state.processed_documents + doc_metadata,
+                "next_action": "ingest_more",
+            }
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Processing new documents...")
+                
+                try:
+                    final_state_dict = self.session_manager.update_and_resume(
+                        self.graph,
+                        self.thread_id,
+                        updates
+                    )
+                    # LangGraph returns dict, convert to TaxGraphState for type safety
+                    final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
+                    progress.update(task, description="Processing complete!", completed=True)
+                except Exception as e:
+                    console.print(f"[red]❌ Failed to process documents: {e}[/red]")
+                    raise
+
+        # Display summary
+        self._display_ingestion_summary(final_state)
+
+        return final_state
+
+    def remove_documents(
+        self,
+        doc_ids: Optional[list[str]] = None,
+        filenames: Optional[list[str]] = None,
+        remove_all: bool = False
+    ) -> TaxGraphState:
+        """Remove processed documents and recalculate.
+        
+        Args:
+            doc_ids: Optional list of document IDs to remove
+            filenames: Optional list of filenames to remove
+            remove_all: If True, remove all documents
+            
+        Returns:
+            Updated TaxGraphState
+        """
+        state = self.session_manager.get_current_state(
+            self.graph.checkpointer,
+            self.thread_id
         )
+        if not state:
+            raise ValueError(f"Session {self.thread_id} not found")
+
+        # Remove documents
+        updated_docs, removed_ids = self.document_manager.remove_documents(
+            state.processed_documents,
+            doc_ids=doc_ids,
+            filenames=filenames,
+            remove_all=remove_all
+        )
+
+        console.print(f"[green]✓[/green] Removed {len(removed_ids)} document(s)")
+
+        # Recalculate totals
+        updated_totals = self.document_manager.recalculate_totals_from_items(
+            state.box1_income_items,
+            state.box3_asset_items,
+            removed_ids
+        )
+
+        # Update state (don't resume, just update checkpoint)
+        config = {"configurable": {"thread_id": self.thread_id}}
+        self.graph.update_state(
+            config,
+            {
+                "processed_documents": updated_docs,
+                **updated_totals,
+                "last_command": "remove"
+            }
+        )
+
+        # Get updated state
+        updated_state = self.session_manager.get_current_state(
+            self.graph.checkpointer,
+            self.thread_id
+        )
+
+        console.print(f"[dim]Recalculated totals - Box 1: €{updated_state.box1_total_income:,.2f}, "
+                     f"Box 3: €{updated_state.box3_total_assets_jan1:,.2f}[/dim]")
+
+        return updated_state
+
+    def calculate_taxes(self) -> TaxGraphState:
+        """Trigger Box 3 calculation.
+        
+        Returns:
+            Final TaxGraphState with calculations complete
+        """
+        console.print("\n[bold]Phase 3: Tax Calculation[/bold]")
+
+        # Update state to trigger calculation
+        updates = {
+            "next_action": "calculate",
+            "last_command": "calculate"
+        }
 
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            task = progress.add_task("Running LangGraph pipeline...")
+            task = progress.add_task("Running Box 3 calculations...")
             
             try:
-                # Create config with thread_id for checkpointing
-                config = {
-                    "configurable": {
-                        "thread_id": self.thread_id
-                    }
-                }
-                
-                if settings.enable_checkpointing:
-                    logger.info(f"Executing graph with checkpointing (thread: {self.thread_id})")
-                    console.print(f"[dim]Thread ID: {self.thread_id}[/dim]")
-                else:
-                    logger.info("Executing graph without checkpointing")
-                
-                # Use invoke() with config for checkpointing support
-                # To trace execution, see docs/execution_flow.md
-                # Or uncomment below to use streaming mode:
-                # final_state = None
-                # for event in self.graph.stream(initial_state, config=config):
-                #     node_name = list(event.keys())[0] if event else "unknown"
-                #     logger.info(f"Executing node: {node_name}")
-                #     console.print(f"[dim]→ Node: {node_name}[/dim]")
-                #     final_state = list(event.values())[0]
-                
-                final_state = self.graph.invoke(initial_state, config=config)
-                progress.update(task, description="Pipeline complete!", completed=True)
+                final_state_dict = self.session_manager.update_and_resume(
+                    self.graph,
+                    self.thread_id,
+                    updates
+                )
+                # LangGraph returns dict, convert to TaxGraphState for type safety
+                final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
+                progress.update(task, description="Calculation complete!", completed=True)
             except Exception as e:
-                console.print(f"[red]❌ Graph execution failed: {e}[/red]")
+                console.print(f"[red]❌ Calculation failed: {e}[/red]")
                 raise
 
         # Display results
@@ -222,42 +409,120 @@ class DutchTaxAgent:
 
         return final_state
 
+    def get_status(self) -> dict:
+        """Get current session status.
+        
+        Returns:
+            Dict with session status information
+        """
+        # First check if session exists in registry
+        session_info = self.session_manager.get_session(self.thread_id)
+        if not session_info:
+            return {"error": "Session not found in registry"}
+        
+        # Try to get state from checkpoint
+        state = self.session_manager.get_current_state(
+            self.graph.checkpointer,
+            self.thread_id
+        )
+        if not state:
+            # Session exists in registry but checkpoint can't be parsed
+            return {
+                "error": "Session found in registry but checkpoint state could not be loaded. "
+                        "The checkpoint may be corrupted or in an unexpected format.",
+                "session_id": self.thread_id,
+                "tax_year": session_info.get("tax_year"),
+                "created_at": session_info.get("created_at"),
+            }
+
+        # Prepare Box 3 asset items for display
+        box3_items_data = []
+        for asset in state.box3_asset_items:
+            box3_items_data.append({
+                "description": asset.description or "Unknown",
+                "asset_type": asset.asset_type,
+                "account_number": asset.account_number or "",
+                "source_filename": asset.source_filename,
+                "jan1": asset.value_eur_jan1,
+                "dec31": asset.value_eur_dec31 or 0.0,
+            })
+        
+        return {
+            "session_id": self.thread_id,
+            "status": state.status,
+            "tax_year": state.tax_year,
+            "documents_processed": len(state.processed_documents),
+            "documents": [
+                {
+                    "id": doc["id"],
+                    "filename": doc["filename"],
+                    "pages": doc["page_count"]
+                }
+                for doc in state.processed_documents
+            ],
+            "box1_total": state.box1_total_income,
+            "box3_total": state.box3_total_assets_jan1,
+            "box3_items": box3_items_data,
+            "validation_errors": state.validation_errors,
+            "validation_warnings": state.validation_warnings,
+            "awaiting_action": state.next_action
+        }
+
+    def _display_ingestion_summary(self, state: TaxGraphState) -> None:
+        """Display summary after ingestion.
+        
+        Args:
+            state: Current graph state (TaxGraphState object)
+        """
+        console.print("\n[bold]📄 Document Processing Summary[/bold]\n")
+        
+        console.print(f"[bold]Documents:[/bold] {len(state.processed_documents)}")
+        for doc in state.processed_documents:
+            console.print(f"  • {doc['filename']} ({doc['page_count']} pages)")
+        
+        console.print(f"\n[bold cyan]Box 1: Income[/bold cyan]")
+        console.print(f"Total: [green]€{state.box1_total_income:,.2f}[/green]")
+        console.print(f"Items: {len(state.box1_income_items)}")
+
+        console.print(f"\n[bold cyan]Box 3: Assets (Jan 1, {state.tax_year})[/bold cyan]")
+        console.print(f"Total: [green]€{state.box3_total_assets_jan1:,.2f}[/green]")
+        console.print(f"Items: {len(state.box3_asset_items)}")
+
+        if state.validation_warnings:
+            console.print(f"\n[yellow]⚠️  Warnings ({len(state.validation_warnings)}):[/yellow]")
+            for warning in state.validation_warnings:
+                console.print(f"  • {warning}")
+
+        if state.validation_errors:
+            console.print(f"\n[red]❌ Errors ({len(state.validation_errors)}):[/red]")
+            for error in state.validation_errors:
+                console.print(f"  • {error}")
+
+        console.print(f"\n[yellow]⏸  Paused - awaiting command[/yellow]")
+        console.print(f"[dim]Use 'dutch-tax-agent calculate --thread-id {self.thread_id}' to proceed[/dim]")
+
     def _display_results(self, state: TaxGraphState) -> None:
         """Display the final results in a nice format.
         
         Args:
-            state: Final graph state
+            state: Final graph state (TaxGraphState object)
         """
-        console.print("\n[bold]📊 Tax Processing Results[/bold]\n")
+        console.print("\n[bold]📊 Tax Calculation Results[/bold]\n")
 
-        # Handle both dict and Pydantic state
-        if isinstance(state, dict):
-            box1_total = state.get("box1_total_income", 0.0)
-            box3_total = state.get("box3_total_assets_jan1", 0.0)
-            box1_items = state.get("box1_income_items", [])
-            box3_items = state.get("box3_asset_items", [])
-            tax_year = state.get("tax_year", 2024)
-        else:
-            box1_total = state.box1_total_income
-            box3_total = state.box3_total_assets_jan1
-            box1_items = state.box1_income_items
-            box3_items = state.box3_asset_items
-            tax_year = state.tax_year
-        
         # Box 1 Summary
         console.print("[bold cyan]Box 1: Income from Employment[/bold cyan]")
-        console.print(f"Total Income: [green]€{box1_total:,.2f}[/green]")
-        console.print(f"Items: {len(box1_items)}")
+        console.print(f"Total Income: [green]€{state.box1_total_income:,.2f}[/green]")
+        console.print(f"Items: {len(state.box1_income_items)}")
 
         # Box 3 Summary
-        console.print(f"\n[bold cyan]Box 3: Wealth (Jan 1, {tax_year})[/bold cyan]")
-        console.print(f"Total Assets: [green]€{box3_total:,.2f}[/green]")
-        console.print(f"Items: {len(box3_items)}")
+        console.print(f"\n[bold cyan]Box 3: Wealth (Jan 1, {state.tax_year})[/bold cyan]")
+        console.print(f"Total Assets: [green]€{state.box3_total_assets_jan1:,.2f}[/green]")
+        console.print(f"Items: {len(state.box3_asset_items)}")
 
         # Box 3 Calculations
-        fictional = state.get("box3_fictional_yield_result") if isinstance(state, dict) else state.box3_fictional_yield_result
-        actual = state.get("box3_actual_return_result") if isinstance(state, dict) else state.box3_actual_return_result
-        recommendation_reasoning = state.get("recommendation_reasoning") if isinstance(state, dict) else getattr(state, "recommendation_reasoning", None)
+        fictional = state.box3_fictional_yield_result
+        actual = state.box3_actual_return_result
+        recommendation_reasoning = state.recommendation_reasoning
         
         if fictional and actual:
             console.print("\n[bold yellow]Box 3 Tax Comparison[/bold yellow]")
@@ -285,22 +550,19 @@ class DutchTaxAgent:
                 console.print(recommendation_reasoning)
 
         # Warnings & Errors
-        validation_warnings = state.get("validation_warnings", []) if isinstance(state, dict) else state.validation_warnings
-        validation_errors = state.get("validation_errors", []) if isinstance(state, dict) else state.validation_errors
-        
-        if validation_warnings:
-            console.print(f"\n[bold yellow]⚠️  Warnings ({len(validation_warnings)}):[/bold yellow]")
-            for warning in validation_warnings:
+        if state.validation_warnings:
+            console.print(f"\n[bold yellow]⚠️  Warnings ({len(state.validation_warnings)}):[/bold yellow]")
+            for warning in state.validation_warnings:
                 console.print(f"  • {warning}")
 
-        if validation_errors:
-            console.print(f"\n[bold red]❌ Errors ({len(validation_errors)}):[/bold red]")
-            for error in validation_errors:
+        if state.validation_errors:
+            console.print(f"\n[bold red]❌ Errors ({len(state.validation_errors)}):[/bold red]")
+            for error in state.validation_errors:
                 console.print(f"  • {error}")
 
 
 def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_partner: bool = True, thread_id: Optional[str] = None) -> None:
-    """Main entry point.
+    """Main entry point (legacy function for backward compatibility).
     
     Args:
         input_dir: Directory containing PDF files
@@ -328,10 +590,15 @@ def main(input_dir: Optional[Path] = None, tax_year: int = 2024, has_fiscal_part
     console.print(f"[bold]Found {len(pdf_files)} PDF files[/bold]\n")
 
     # Create agent and process
-    agent = DutchTaxAgent(tax_year=tax_year, has_fiscal_partner=has_fiscal_partner, thread_id=thread_id)
+    agent = DutchTaxAgent(thread_id=thread_id, tax_year=tax_year, has_fiscal_partner=has_fiscal_partner)
 
     try:
-        agent.process_documents(pdf_files)
+        # Use new HITL workflow
+        agent.ingest_documents(pdf_files, is_initial=True)
+        
+        # Auto-calculate for backward compatibility
+        agent.calculate_taxes()
+        
     except Exception as e:
         console.print(f"[bold red]Fatal error: {e}[/bold red]")
         logger.exception("Fatal error during processing")
@@ -381,4 +648,3 @@ if __name__ == "__main__":
         has_fiscal_partner=not args.no_fiscal_partner,
         thread_id=args.thread_id
     )
-

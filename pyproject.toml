@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "numpy<2.0",  # Pin to numpy 1.x for compatibility with thinc/spacy
     "en-core-web-lg",
+    "langgraph-checkpoint-sqlite>=3.0.1",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +33,10 @@ dev = [
     "mypy>=1.11.0",
     "ipython>=8.12.0",
 ]
+
+[project.scripts]
+dutch-tax-agent = "dutch_tax_agent.cli:app"
+dutch_tax_agent = "dutch_tax_agent.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -84,6 +89,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning:spacy.cli._util",
+]
 
 [tool.coverage.run]
 source = ["src"]

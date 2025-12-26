@@ -4,7 +4,7 @@ from operator import add
 from typing import Annotated, Literal, Optional
 
 from langgraph.graph import add_messages
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from dutch_tax_agent.schemas.documents import ExtractionResult, ScrubbedDocument
 from dutch_tax_agent.schemas.tax_entities import (
@@ -61,11 +61,12 @@ class TaxGraphState(BaseModel):
     )
     
     # --- Aggregated Data: Validated Entities (Phase 2 Reducer Output) ---
-    box1_income_items: list[Box1Income] = Field(
+    # Using Annotated with 'add' operator to accumulate items across multiple ingestions
+    box1_income_items: Annotated[list[Box1Income], add] = Field(
         default_factory=list,
         description="All validated Box 1 income items",
     )
-    box3_asset_items: list[Box3Asset] = Field(
+    box3_asset_items: Annotated[list[Box3Asset], add] = Field(
         default_factory=list,
         description="All validated Box 3 asset items",
     )
@@ -96,6 +97,7 @@ class TaxGraphState(BaseModel):
         "extracting",
         "validating",
         "quarantine",
+        "awaiting_human",
         "ready_for_calculation",
         "calculating",
         "complete",
@@ -137,10 +139,34 @@ class TaxGraphState(BaseModel):
         default=False,
         description="Flag to trigger human intervention",
     )
+    next_action: Literal["await_human", "ingest_more", "calculate"] = Field(
+        default="await_human",
+        description="Next action to take at HITL control node",
+    )
+    
+    # --- Document Tracking ---
+    processed_documents: list[dict] = Field(
+        default_factory=list,
+        description="List of documents with metadata: {id, filename, hash, page_count, timestamp}",
+    )
+    
+    # --- Session Metadata ---
+    session_id: str = Field(
+        default="",
+        description="Unique session identifier (same as thread_id)",
+    )
+    last_command: Optional[str] = Field(
+        default=None,
+        description="Last CLI command executed",
+    )
+    paused_at_node: Optional[str] = Field(
+        default=None,
+        description="Node where execution paused",
+    )
 
-    class Config:
-        """Pydantic config."""
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
 
 # Annotated types for message-like fields (if needed for streaming)

@@ -2,25 +2,22 @@
 
 import logging
 
-from langgraph.graph import END
-from langgraph.types import Command
-
 from dutch_tax_agent.schemas.state import TaxGraphState
 
 logger = logging.getLogger(__name__)
 
 
-def reducer_node(state: TaxGraphState) -> Command:
+def reducer_node(state: TaxGraphState) -> dict:
     """Reducer node: Aggregates validated Box 1 and Box 3 items.
     
     This implements the REDUCE step of Map-Reduce pattern.
-    Uses Command to both update state and determine routing.
+    After reduction, always proceeds to HITL control node for human decision.
     
     Args:
         state: Current graph state with extraction results
         
     Returns:
-        Command with state updates and routing decision
+        Dict with state updates (routing handled by graph edges)
     """
     logger.info(f"Reducing {len(state.extraction_results)} extraction results")
 
@@ -78,37 +75,31 @@ def reducer_node(state: TaxGraphState) -> Command:
             f"{len(low_confidence_assets)} Box 3 assets have low confidence scores"
         )
 
-    # Determine next status and routing
+    # Determine next status (but don't route - that's done by HITL control)
     if validation_errors:
         next_status = "quarantine"
         requires_review = True
-        next_node = END
         logger.warning(
             f"Validation failed with {len(validation_errors)} errors. "
-            f"Sending to quarantine."
+            f"Proceeding to HITL control."
         )
     elif not state.box3_asset_items:
-        next_status = "complete"
+        next_status = "ready_for_calculation"
         requires_review = False
-        next_node = END
-        logger.info("No Box 3 assets, completing without Box 3 calculation.")
+        logger.info("No Box 3 assets. Proceeding to HITL control.")
     else:
         next_status = "ready_for_calculation"
         requires_review = False
-        next_node = "start_box3"
-        logger.info("Validation passed. Ready for Box 3 calculation.")
+        logger.info("Validation passed. Proceeding to HITL control.")
 
-    # Use Command to update state and route to next node
-    return Command(
-        update={
-            "box1_total_income": box1_total,
-            "box3_total_assets_jan1": box3_total,
-            "validation_errors": validation_errors,
-            "validation_warnings": validation_warnings,
-            "status": next_status,
-            "requires_human_review": requires_review,
-        },
-        goto=next_node,
-    )
+    # Return state updates (routing to hitl_control is handled by graph edge)
+    return {
+        "box1_total_income": box1_total,
+        "box3_total_assets_jan1": box3_total,
+        "validation_errors": validation_errors,
+        "validation_warnings": validation_warnings,
+        "status": next_status,
+        "requires_human_review": requires_review,
+    }
 
 
