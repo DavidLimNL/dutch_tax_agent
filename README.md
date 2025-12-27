@@ -10,7 +10,7 @@ A production-grade LangGraph application that automates Dutch tax filing while a
 - **Parallel Document Processing**: Uses LangGraph's `Send` API for concurrent parsing
 - **LangGraph Checkpointing**: State persistence with 80-95% token usage reduction
 - **Human-in-the-Loop (HITL)**: Iteratively add documents, review data, then calculate
-- **Session Management**: Pause/resume workflows, survives restarts with SQLite persistence
+- **Thread-Based State Management**: Pause/resume workflows, survives restarts with SQLite persistence
 - **Legal Compliance**: Handles Box 3 ambiguity by calculating both methods
 - **Deterministic Math**: All calculations done with Python tools, not LLM tokens
 - **Audit Trail**: Every extracted value links back to source documents
@@ -117,7 +117,7 @@ The HITL workflow allows you to iteratively process documents and review data be
 ```bash
 # Step 1: Process initial documents
 uv run dutch-tax-agent ingest --input-dir ./sample_docs --year 2024
-# Output: Session tax2024-abc123 created
+# Output: Thread tax2024-abc123 created
 
 # Step 2: Check extracted data
 uv run dutch-tax-agent status --thread-id tax2024-abc123
@@ -131,8 +131,8 @@ uv run dutch-tax-agent remove --thread-id tax2024-abc123 --doc-id a1b2c3d4e5f6
 # Step 5: Calculate taxes
 uv run dutch-tax-agent calculate --thread-id tax2024-abc123
 
-# List all sessions
-uv run dutch-tax-agent sessions
+# List all threads
+uv run dutch-tax-agent threads
 ```
 
 See [HITL Workflow Documentation](./docs/hitl_workflow.md) for complete guide.
@@ -158,7 +158,7 @@ The agent uses LangGraph checkpointing with SQLite for persistent state manageme
 - **Reduce token usage by 80-95%** (documents cleared after extraction)
 - **Enable human-in-the-loop workflows** (pause/resume for review)
 - **Provide fault tolerance** (resume from failures)
-- **Session persistence** (survives application restarts)
+- **Thread persistence** (survives application restarts)
 
 ### Configuration
 
@@ -170,17 +170,17 @@ CHECKPOINT_BACKEND=sqlite  # Default (options: memory, sqlite, postgres)
 CHECKPOINT_DB_PATH=~/.dutch_tax_agent/checkpoints.db  # Default
 ```
 
-### HITL Session Management
+### HITL Thread Management
 
 ```bash
 # Process documents incrementally
 uv run dutch-tax-agent ingest -i ~/docs --year 2024
 
-# View session status
+# View thread status
 uv run dutch-tax-agent status -t tax2024-abc123
 
-# List all sessions
-uv run dutch-tax-agent sessions
+# List all threads
+uv run dutch-tax-agent threads
 
 # Calculate when ready
 uv run dutch-tax-agent calculate -t tax2024-abc123

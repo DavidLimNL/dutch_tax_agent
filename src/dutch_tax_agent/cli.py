@@ -10,7 +10,8 @@ from rich.table import Table
 from rich.text import Text
 
 from dutch_tax_agent.agent import DutchTaxAgent
-from dutch_tax_agent.session_manager import SessionManager
+from dutch_tax_agent.checkpoint_utils import list_all_threads, thread_exists
+from dutch_tax_agent.graph import create_tax_graph
 
 app = typer.Typer(
     name="dutch-tax-agent",
@@ -24,13 +25,13 @@ console = Console()
 def ingest(
     input_dir: Path = typer.Option(..., "--input-dir", "-i", help="Directory containing PDF tax documents"),
     year: int = typer.Option(2024, "--year", "-y", help="Tax year to process (2022-2025)"),
-    thread_id: Optional[str] = typer.Option(None, "--thread-id", "-t", help="Thread ID (for adding to existing session)"),
+    thread_id: Optional[str] = typer.Option(None, "--thread-id", "-t", help="Thread ID (for adding to existing thread)"),
     no_fiscal_partner: bool = typer.Option(False, "--no-fiscal-partner", help="Disable fiscal partnership"),
 ):
-    """Process documents and add to session.
+    """Process documents and add to thread.
     
-    If thread_id is not provided, creates a new session.
-    If thread_id is provided, adds documents to existing session.
+    If thread_id is not provided, creates a new thread.
+    If thread_id is provided, adds documents to existing thread.
     """
     if not input_dir.exists():
         console.print(f"[red]Error: Directory not found: {input_dir}[/red]")
@@ -60,9 +61,9 @@ def ingest(
         state = agent.ingest_documents(pdf_files, is_initial=is_initial)
         
         if is_initial:
-            console.print(f"\n[green]✓[/green] Created session: [bold]{agent.thread_id}[/bold]")
+            console.print(f"\n[green]✓[/green] Created thread: [bold]{agent.thread_id}[/bold]")
         else:
-            console.print(f"\n[green]✓[/green] Updated session: [bold]{agent.thread_id}[/bold]")
+            console.print(f"\n[green]✓[/green] Updated thread: [bold]{agent.thread_id}[/bold]")
             
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
@@ -71,9 +72,9 @@ def ingest(
 
 @app.command()
 def status(
-    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Session ID to view"),
+    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Thread ID to view"),
 ):
-    """Show session status and extracted data."""
+    """Show thread status and extracted data."""
     
     agent = DutchTaxAgent(thread_id=thread_id)
     
@@ -85,7 +86,7 @@ def status(
             raise typer.Exit(1)
         
         # Display status
-        console.print(f"\n[bold blue]Session: {status_info['session_id']}[/bold blue]\n")
+        console.print(f"\n[bold blue]Thread: {status_info['thread_id']}[/bold blue]\n")
         console.print(f"[bold]Status:[/bold] {status_info['status']}")
         console.print(f"[bold]Tax Year:[/bold] {status_info['tax_year']}")
         console.print(f"[bold]Next Action:[/bold] {status_info['awaiting_action']}")
@@ -167,9 +168,9 @@ def status(
 
 @app.command()
 def calculate(
-    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Session ID to calculate"),
+    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Thread ID to calculate"),
 ):
-    """Calculate taxes for a session."""
+    """Calculate taxes for a thread."""
     
     agent = DutchTaxAgent(thread_id=thread_id)
     
@@ -183,12 +184,12 @@ def calculate(
 
 @app.command()
 def remove(
-    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Session ID"),
+    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Thread ID"),
     doc_id: Optional[list[str]] = typer.Option(None, "--doc-id", help="Document ID(s) to remove"),
     filename: Optional[list[str]] = typer.Option(None, "--filename", help="Filename(s) to remove"),
     all: bool = typer.Option(False, "--all", help="Remove all documents"),
 ):
-    """Remove processed documents from a session."""
+    """Remove processed documents from a thread."""
     
     if not doc_id and not filename and not all:
         console.print("[red]Error: Must specify --doc-id, --filename, or --all[/red]")
@@ -196,7 +197,7 @@ def remove(
     
     if all:
         # Confirm
-        confirmed = typer.confirm("Remove ALL documents from this session?")
+        confirmed = typer.confirm("Remove ALL documents from this thread?")
         if not confirmed:
             console.print("Cancelled")
             raise typer.Exit(0)
@@ -224,97 +225,40 @@ def remove(
 
 
 @app.command()
-def sessions(
-    all: bool = typer.Option(False, "--all", help="Show all sessions (including inactive)"),
+def threads(
+    limit: int = typer.Option(50, "--limit", "-l", help="Maximum number of threads to show"),
 ):
-    """List all sessions."""
+    """List all threads."""
     
-    session_manager = SessionManager()
+    graph = create_tax_graph()
     
     try:
-        sessions = session_manager.list_sessions(active_only=not all)
+        threads_list = list_all_threads(graph.checkpointer, limit=limit)
         
-        if not sessions:
-            console.print("[dim]No sessions found[/dim]")
+        if not threads_list:
+            console.print("[dim]No threads found[/dim]")
             return
         
-        console.print(f"\n[bold]Sessions ({len(sessions)}):[/bold]\n")
+        console.print(f"\n[bold]Threads ({len(threads_list)}):[/bold]\n")
         
-        sessions_table = Table(show_header=True, header_style="bold cyan")
-        sessions_table.add_column("Thread ID", style="cyan")
-        sessions_table.add_column("Tax Year", justify="center")
-        sessions_table.add_column("Created", style="dim")
-        sessions_table.add_column("Last Updated", style="dim")
-        sessions_table.add_column("Status")
+        threads_table = Table(show_header=True, header_style="bold cyan")
+        threads_table.add_column("Thread ID", style="cyan")
+        threads_table.add_column("Tax Year", justify="center")
+        threads_table.add_column("Documents", justify="right")
+        threads_table.add_column("Next Action", style="dim")
+        threads_table.add_column("Last Updated", style="dim")
         
-        for session in sessions:
-            # Format dates
-            created = session['created_at'].split('T')[0]
-            updated = session['last_updated'].split('T')[0]
-            
-            sessions_table.add_row(
-                session['thread_id'],
-                str(session['tax_year']),
-                created,
-                updated,
-                session['status']
+        for thread in threads_list:
+            threads_table.add_row(
+                thread['thread_id'],
+                str(thread['tax_year']),
+                str(thread['document_count']),
+                thread['next_action'],
+                thread['last_updated'].split('T')[0] if thread['last_updated'] else "N/A"
             )
         
-        console.print(sessions_table)
+        console.print(threads_table)
         
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def reset(
-    thread_id: Optional[str] = typer.Option(None, "--thread-id", "-t", help="Session ID to delete"),
-    all: bool = typer.Option(False, "--all", "-a", help="Delete all sessions"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-):
-    """Delete a session or all sessions."""
-    
-    if not all and not thread_id:
-        console.print("[red]Error: Must specify --thread-id or --all[/red]")
-        raise typer.Exit(1)
-    
-    if all and thread_id:
-        console.print("[red]Error: Cannot specify both --thread-id and --all[/red]")
-        raise typer.Exit(1)
-    
-    session_manager = SessionManager()
-    
-    try:
-        if all:
-            # List sessions first to show what will be deleted
-            sessions = session_manager.list_sessions(active_only=False)
-            if not sessions:
-                console.print("[dim]No sessions to delete[/dim]")
-                return
-            
-            if not force:
-                console.print(f"\n[yellow]Warning: This will delete {len(sessions)} session(s):[/yellow]")
-                for session in sessions:
-                    console.print(f"  • {session['thread_id']}")
-                confirmed = typer.confirm("\nDelete ALL sessions?")
-                if not confirmed:
-                    console.print("Cancelled")
-                    raise typer.Exit(0)
-            
-            count = session_manager.delete_all_sessions()
-            console.print(f"[green]✓[/green] Deleted {count} session(s)")
-            console.print("[dim]Note: Checkpoint data remains in database[/dim]")
-        else:
-            if not force:
-                confirmed = typer.confirm(f"Delete session {thread_id}?")
-                if not confirmed:
-                    console.print("Cancelled")
-                    raise typer.Exit(0)
-            
-            session_manager.delete_session(thread_id)
-            console.print(f"[green]✓[/green] Deleted session: {thread_id}")
-            console.print("[dim]Note: Checkpoint data remains in database[/dim]")
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         raise typer.Exit(1)

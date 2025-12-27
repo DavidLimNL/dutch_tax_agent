@@ -4,15 +4,15 @@ The Dutch Tax Agent supports a human-in-the-loop workflow that allows you to ite
 
 ## Features
 
-- **Incremental Document Processing**: Add documents to a session over time
+- **Incremental Document Processing**: Add documents to a thread over time
 - **Document Management**: Remove or replace documents as needed
-- **Session Persistence**: Resume processing after stopping the application
+- **Thread Persistence**: Resume processing after stopping the application
 - **Review Before Calculate**: Inspect extracted data before running calculations
 - **SQLite Checkpointing**: All state persists to disk automatically
 
 ## Basic Workflow
 
-### 1. Create a New Session and Ingest Documents
+### 1. Create a New Thread and Ingest Documents
 
 ```bash
 # Process initial documents
@@ -21,14 +21,14 @@ dutch-tax-agent ingest --input-dir ~/my_tax_docs/ --year 2024
 
 Output:
 ```
-✓ Created session: tax2024-abc123def456
+✓ Created thread: tax2024-abc123def456
 ✓ Processed 2 documents
 ⏸  Paused - awaiting command
 ```
 
-The session ID (e.g., `tax2024-abc123def456`) is used for all subsequent operations.
+The thread ID (e.g., `tax2024-abc123def456`) is used for all subsequent operations.
 
-### 2. Check Session Status
+### 2. Check Thread Status
 
 ```bash
 # View current state
@@ -86,20 +86,20 @@ This runs:
 
 ## Advanced Usage
 
-### List All Sessions
+### List All Threads
 
 ```bash
-# List active sessions
-dutch-tax-agent sessions
+# List active threads
+dutch-tax-agent threads
 
-# List all sessions (including completed)
-dutch-tax-agent sessions --all
+# List all threads (including completed)
+dutch-tax-agent threads --all
 ```
 
-### Delete a Session
+### Delete a Thread
 
 ```bash
-# Delete session (with confirmation)
+# Delete thread (with confirmation)
 dutch-tax-agent reset --thread-id tax2024-abc123def456
 
 # Force delete (no confirmation)
@@ -141,7 +141,7 @@ The **HITL Control Node** acts as a decision point:
 
 The system uses **SqliteSaver** for persistent checkpointing:
 - Database location: `~/.dutch_tax_agent/checkpoints.db`
-- Session registry: `~/.dutch_tax_agent/sessions.json`
+- Thread registry: `~/.dutch_tax_agent/threads.json`
 - Automatic state persistence after each node execution
 - Resume from exact point after restart
 
@@ -167,7 +167,7 @@ The graph state includes:
 ```bash
 # Step 1: Initial ingestion
 dutch-tax-agent ingest -i ~/tax2024/ -y 2024
-# Output: Session tax2024-abc123 created
+# Output: Thread tax2024-abc123 created
 
 # Step 2: Check what was extracted
 dutch-tax-agent status -t tax2024-abc123
@@ -187,17 +187,17 @@ dutch-tax-agent remove -t tax2024-abc123 --doc-id a1b2c3d4e5f6
 dutch-tax-agent calculate -t tax2024-abc123
 # Output: Box 3 comparison results
 
-# Step 6: Review all sessions
-dutch-tax-agent sessions
+# Step 6: Review all threads
+dutch-tax-agent threads
 ```
 
 ## Troubleshooting
 
-### Session Not Found
+### Thread Not Found
 ```
-Error: Session tax2024-abc123 not found
+Error: Thread tax2024-abc123 not found
 ```
-**Solution**: Check session ID with `dutch-tax-agent sessions`
+**Solution**: Check thread ID with `dutch-tax-agent threads`
 
 ### No New Documents
 ```
@@ -208,7 +208,7 @@ Error: Session tax2024-abc123 not found
 
 ### Cannot Resume After Restart
 ```
-Error: Session not found
+Error: Thread not found
 ```
 **Cause**: Using MemorySaver instead of SqliteSaver
 **Solution**: Ensure `CHECKPOINT_BACKEND=sqlite` in `.env` (default as of v0.2.0)
@@ -228,11 +228,11 @@ CHECKPOINT_BACKEND=sqlite  # Default
 CHECKPOINT_DB_PATH=~/.dutch_tax_agent/checkpoints.db  # Default
 ```
 
-### Session Storage
+### Thread Storage
 
-Sessions are stored in:
+Threads are stored in:
 - **Checkpoints**: `~/.dutch_tax_agent/checkpoints.db` (SQLite)
-- **Registry**: `~/.dutch_tax_agent/sessions.json` (JSON)
+- **Registry**: `~/.dutch_tax_agent/threads.json` (JSON)
 
 To reset everything:
 ```bash
@@ -241,7 +241,7 @@ rm -rf ~/.dutch_tax_agent/
 
 ## Limitations
 
-- **No concurrent sessions**: Don't run multiple commands on the same session simultaneously
+- **No concurrent threads**: Don't run multiple commands on the same thread simultaneously
 - **No state merging**: Adding documents replaces `documents` list (old docs cleared from state, but metadata remains)
 - **Document order**: Documents processed in filesystem order
 - **No partial removal**: Can't remove individual line items, only entire documents
@@ -251,8 +251,8 @@ rm -rf ~/.dutch_tax_agent/
 Planned features for future releases:
 - Interactive review mode (approve/reject extracted data)
 - Document preview in CLI
-- Export session data to JSON/CSV
-- Web UI for session management
+- Export thread data to JSON/CSV
+- Web UI for thread management
 - Undo/redo operations
 - Manual corrections to extracted values
 

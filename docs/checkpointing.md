@@ -314,7 +314,7 @@ for event in agent.graph.stream(initial_state, config=config):
 ## Best Practices
 
 1. **Always use thread_ids in production**
-   - Save thread_id to user session/database
+   - Save thread_id to user thread/database
    - Use for resuming and debugging
 
 2. **Enable checkpointing by default**
@@ -329,7 +329,7 @@ for event in agent.graph.stream(initial_state, config=config):
 
 5. **Implement cleanup policies**
    - Delete old checkpoints after N days
-   - Archive completed sessions
+   - Archive completed threads
 
 ## Future Enhancements
 

@@ -13,7 +13,8 @@ Location: `main.py::ingest_documents()` lines 145-203
 1. **Deduplication** (lines 133-141)
    ```python
    # Get existing state
-   state = self.session_manager.get_current_state(self.graph.checkpointer, self.thread_id)
+   from dutch_tax_agent.checkpoint_utils import get_thread_state
+   state = get_thread_state(self.graph.checkpointer, self.thread_id)
    
    # Filter for new documents only (SHA256 hash comparison)
    pdf_paths = self.document_manager.find_new_documents(
@@ -63,11 +64,16 @@ updates = {
     "next_action": "ingest_more",  # Signal to loop back
 }
 
-final_state = self.session_manager.update_and_resume(
-    self.graph,
-    self.thread_id,
-    updates
-)
+# Update state and resume execution
+config = {"configurable": {"thread_id": self.thread_id}}
+self.graph.update_state(config, updates)
+
+# Resume from checkpoint
+final_state_dict = None
+for event in self.graph.stream(None, config=config, stream_mode="updates"):
+    node_name = list(event.keys())[0] if event else "unknown"
+    if node_name != "__interrupt__":
+        final_state_dict = list(event.values())[0] if event else None
 ```
 
 ### Graph Execution Flow
@@ -193,16 +199,16 @@ You can verify this works by:
 ```bash
 # Test incremental ingestion
 uv run dutch-tax-agent ingest -i ~/docs --year 2024
-# Note session ID
+# Note thread ID
 
-uv run dutch-tax-agent status -t <session-id>
+uv run dutch-tax-agent status -t <thread-id>
 # Check Box 1 and Box 3 totals
 
 # Add more documents
 cp new_document.pdf ~/docs
-uv run dutch-tax-agent ingest -i ~/docs -t <session-id>
+uv run dutch-tax-agent ingest -i ~/docs -t <thread-id>
 
-uv run dutch-tax-agent status -t <session-id>
+uv run dutch-tax-agent status -t <thread-id>
 # Verify totals increased (old + new)
 ```
 

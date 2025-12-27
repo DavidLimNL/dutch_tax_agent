@@ -9,13 +9,12 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from dutch_tax_agent.checkpoint_utils import generate_thread_id
+from dutch_tax_agent.checkpoint_utils import generate_thread_id, get_thread_state, thread_exists
 from dutch_tax_agent.config import settings
 from dutch_tax_agent.document_manager import DocumentManager
 from dutch_tax_agent.graph import create_tax_graph
 from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
 from dutch_tax_agent.schemas.state import TaxGraphState
-from dutch_tax_agent.session_manager import SessionManager
 
 # Suppress all Presidio logging BEFORE basicConfig to prevent any output
 # Use NullHandler to completely silence Presidio loggers
@@ -95,7 +94,6 @@ class DutchTaxAgent:
         self.pii_scrubber = PIIScrubber()
         self.graph = create_tax_graph()
         self.document_manager = DocumentManager()
-        self.session_manager = SessionManager()
 
         logger.info(
             f"Initialized Dutch Tax Agent for tax year {tax_year} "
@@ -111,7 +109,7 @@ class DutchTaxAgent:
         
         Args:
             pdf_paths: List of paths to PDF files
-            is_initial: If True, creates new session. If False, adds to existing session.
+            is_initial: If True, creates new thread. If False, adds to existing thread.
             
         Returns:
             TaxGraphState after ingestion (paused at HITL control)
@@ -120,12 +118,12 @@ class DutchTaxAgent:
 
         # Get existing state if resuming
         if not is_initial:
-            state = self.session_manager.get_current_state(
+            state = get_thread_state(
                 self.graph.checkpointer,
                 self.thread_id
             )
             if not state:
-                raise ValueError(f"Session {self.thread_id} not found. Use is_initial=True to create new session.")
+                raise ValueError(f"Thread {self.thread_id} not found. Use is_initial=True to create new thread.")
             
             # Find new documents (skip already processed)
             pdf_paths = self.document_manager.find_new_documents(
@@ -260,16 +258,9 @@ class DutchTaxAgent:
                     console.print(f"[red]❌ Graph execution failed: {e}[/red]")
                     raise
             
-            # Register session
-            self.session_manager.create_session(
-                self.thread_id,
-                self.tax_year,
-                self.has_fiscal_partner
-            )
-            
         else:
             # Incremental: update state and resume
-            state = self.session_manager.get_current_state(
+            state = get_thread_state(
                 self.graph.checkpointer,
                 self.thread_id
             )
@@ -289,13 +280,26 @@ class DutchTaxAgent:
                 task = progress.add_task("Processing new documents...")
                 
                 try:
-                    # Don't use as_node - just update state and resume
-                    # The graph will re-execute hitl_control which will see next_action="ingest_more"
-                    final_state_dict = self.session_manager.update_and_resume(
-                        self.graph,
-                        self.thread_id,
-                        updates
-                    )
+                    # Update state and resume execution
+                    config = {"configurable": {"thread_id": self.thread_id}}
+                    logger.info(f"Applying state updates: {list(updates.keys())}")
+                    self.graph.update_state(config, updates)
+                    
+                    # Resume execution with None input (continues from checkpoint)
+                    logger.info(f"Resuming graph execution (thread: {self.thread_id})")
+                    final_state_dict = None
+                    for event in self.graph.stream(None, config=config, stream_mode="updates"):
+                        node_name = list(event.keys())[0] if event else "unknown"
+                        logger.info(f"Graph executing node: {node_name}")
+                        if node_name != "__interrupt__":
+                            final_state_dict = list(event.values())[0] if event else None
+                    
+                    # If stream didn't yield any non-interrupt events, get state from checkpoint
+                    if final_state_dict is None:
+                        logger.warning("Stream yielded no non-interrupt events, getting state from checkpoint")
+                        from dutch_tax_agent.checkpoint_utils import get_checkpoint_state
+                        final_state_dict = get_checkpoint_state(self.graph.checkpointer, self.thread_id)
+                    
                     # LangGraph returns dict, convert to TaxGraphState for type safety
                     final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
                     progress.update(task, description="Processing complete!", completed=True)
@@ -324,12 +328,12 @@ class DutchTaxAgent:
         Returns:
             Updated TaxGraphState
         """
-        state = self.session_manager.get_current_state(
+        state = get_thread_state(
             self.graph.checkpointer,
             self.thread_id
         )
         if not state:
-            raise ValueError(f"Session {self.thread_id} not found")
+            raise ValueError(f"Thread {self.thread_id} not found")
 
         # Remove documents
         updated_docs, removed_ids = self.document_manager.remove_documents(
@@ -388,7 +392,7 @@ class DutchTaxAgent:
         self.graph.update_state(config, state_updates)
         
         # Verify the update by getting the state again
-        updated_state = self.session_manager.get_current_state(
+        updated_state = get_thread_state(
             self.graph.checkpointer,
             self.thread_id
         )
@@ -454,11 +458,26 @@ class DutchTaxAgent:
             task = progress.add_task("Running Box 3 calculations...")
             
             try:
-                final_state_dict = self.session_manager.update_and_resume(
-                    self.graph,
-                    self.thread_id,
-                    updates
-                )
+                # Update state and resume execution
+                config = {"configurable": {"thread_id": self.thread_id}}
+                logger.info(f"Applying state updates: {list(updates.keys())}")
+                self.graph.update_state(config, updates)
+                
+                # Resume execution with None input (continues from checkpoint)
+                logger.info(f"Resuming graph execution (thread: {self.thread_id})")
+                final_state_dict = None
+                for event in self.graph.stream(None, config=config, stream_mode="updates"):
+                    node_name = list(event.keys())[0] if event else "unknown"
+                    logger.info(f"Graph executing node: {node_name}")
+                    if node_name != "__interrupt__":
+                        final_state_dict = list(event.values())[0] if event else None
+                
+                # If stream didn't yield any non-interrupt events, get state from checkpoint
+                if final_state_dict is None:
+                    logger.warning("Stream yielded no non-interrupt events, getting state from checkpoint")
+                    from dutch_tax_agent.checkpoint_utils import get_checkpoint_state
+                    final_state_dict = get_checkpoint_state(self.graph.checkpointer, self.thread_id)
+                
                 # LangGraph returns dict, convert to TaxGraphState for type safety
                 final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
                 progress.update(task, description="Calculation complete!", completed=True)
@@ -472,29 +491,21 @@ class DutchTaxAgent:
         return final_state
 
     def get_status(self) -> dict:
-        """Get current session status.
+        """Get current thread status.
         
         Returns:
-            Dict with session status information
+            Dict with thread status information
         """
-        # First check if session exists in registry
-        session_info = self.session_manager.get_session(self.thread_id)
-        if not session_info:
-            return {"error": "Session not found in registry"}
-        
         # Try to get state from checkpoint
-        state = self.session_manager.get_current_state(
+        state = get_thread_state(
             self.graph.checkpointer,
             self.thread_id
         )
         if not state:
-            # Session exists in registry but checkpoint can't be parsed
             return {
-                "error": "Session found in registry but checkpoint state could not be loaded. "
+                "error": "Thread not found or checkpoint state could not be loaded. "
                         "The checkpoint may be corrupted or in an unexpected format.",
-                "session_id": self.thread_id,
-                "tax_year": session_info.get("tax_year"),
-                "created_at": session_info.get("created_at"),
+                "thread_id": self.thread_id,
             }
 
         # Prepare Box 3 asset items for display
@@ -510,7 +521,7 @@ class DutchTaxAgent:
             })
         
         return {
-            "session_id": self.thread_id,
+            "thread_id": self.thread_id,
             "status": state.status,
             "tax_year": state.tax_year,
             "documents_processed": len(state.processed_documents),

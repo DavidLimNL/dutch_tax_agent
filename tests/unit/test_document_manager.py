@@ -581,6 +581,7 @@ class TestDocumentRemovalIntegration:
         assert result["box3_total_assets_jan1"] == 8000.0
 
 
+# Agent integration tests - simplified to test core logic without session_manager
 class TestAgentDocumentRemoval:
     """Tests for DutchTaxAgent.remove_documents method."""
     
@@ -591,12 +592,6 @@ class TestAgentDocumentRemoval:
         graph.checkpointer = Mock()
         graph.update_state = Mock()
         return graph
-    
-    @pytest.fixture
-    def session_manager(self, tmp_path: Path):
-        """Create a SessionManager instance."""
-        from dutch_tax_agent.session_manager import SessionManager
-        return SessionManager(registry_path=tmp_path / "test_sessions.json")
     
     @pytest.fixture
     def sample_state(self):
@@ -691,17 +686,14 @@ class TestAgentDocumentRemoval:
         )
     
     def test_remove_documents_by_id_filters_all_data(
-        self, mock_graph: Mock, session_manager, sample_state
+        self, mock_graph: Mock, sample_state
     ):
         """Test that remove_documents filters all related data correctly."""
         from dutch_tax_agent.agent import DutchTaxAgent
         from dutch_tax_agent.schemas.state import TaxGraphState
+        from unittest.mock import patch
         
         thread_id = "test-thread"
-        session_manager.create_session(thread_id, tax_year=2024)
-        
-        # Mock get_current_state to return sample_state
-        session_manager.get_current_state = Mock(return_value=sample_state)
         
         # Mock updated state after removal
         updated_state = TaxGraphState(**sample_state.model_dump())
@@ -713,118 +705,110 @@ class TestAgentDocumentRemoval:
         updated_state.box1_total_income = 2000.0
         updated_state.box3_total_assets_jan1 = 5000.0
         
-        # Return updated state on second call
-        session_manager.get_current_state.side_effect = [sample_state, updated_state]
-        
         with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
-            agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
-            agent.session_manager = session_manager
-            
-            result = agent.remove_documents(doc_ids=["doc1"])
-            
-            # Verify update_state was called
-            mock_graph.update_state.assert_called_once()
-            call_args = mock_graph.update_state.call_args
-            config = call_args[0][0]
-            updates = call_args[0][1]
-            
-            assert config["configurable"]["thread_id"] == thread_id
-            assert len(updates["processed_documents"]) == 1
-            assert updates["processed_documents"][0]["id"] == "doc2"
-            assert len(updates["extraction_results"]) == 1
-            assert updates["extraction_results"][0].doc_id == "doc2"
-            assert len(updates["validated_results"]) == 1
-            assert updates["validated_results"][0]["doc_id"] == "doc2"
-            assert len(updates["box1_income_items"]) == 1
-            assert updates["box1_income_items"][0].source_doc_id == "doc2"
-            assert len(updates["box3_asset_items"]) == 1
-            assert updates["box3_asset_items"][0].source_doc_id == "doc2"
-            assert updates["box1_total_income"] == 2000.0
-            assert updates["box3_total_assets_jan1"] == 5000.0
+            with patch('dutch_tax_agent.agent.get_thread_state', side_effect=[sample_state, updated_state]):
+                agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
+                
+                result = agent.remove_documents(doc_ids=["doc1"])
+                
+                # Verify update_state was called
+                mock_graph.update_state.assert_called_once()
+                call_args = mock_graph.update_state.call_args
+                config = call_args[0][0]
+                updates = call_args[0][1]
+                
+                assert config["configurable"]["thread_id"] == thread_id
+                assert len(updates["processed_documents"]) == 1
+                assert updates["processed_documents"][0]["id"] == "doc2"
+                assert len(updates["extraction_results"]) == 1
+                assert updates["extraction_results"][0].doc_id == "doc2"
+                assert len(updates["validated_results"]) == 1
+                assert updates["validated_results"][0]["doc_id"] == "doc2"
+                assert len(updates["box1_income_items"]) == 1
+                assert updates["box1_income_items"][0].source_doc_id == "doc2"
+                assert len(updates["box3_asset_items"]) == 1
+                assert updates["box3_asset_items"][0].source_doc_id == "doc2"
+                assert updates["box1_total_income"] == 2000.0
+                assert updates["box3_total_assets_jan1"] == 5000.0
     
     def test_remove_documents_verifies_persistence(
-        self, mock_graph: Mock, session_manager, sample_state
+        self, mock_graph: Mock, sample_state
     ):
         """Test that remove_documents verifies state was persisted."""
         from dutch_tax_agent.agent import DutchTaxAgent
         from dutch_tax_agent.schemas.state import TaxGraphState
+        from unittest.mock import patch
         
         thread_id = "test-thread"
-        session_manager.create_session(thread_id, tax_year=2024)
         
-        # Mock get_current_state - first call returns original, second returns updated
+        # Create updated state after removal
         updated_state = TaxGraphState(**sample_state.model_dump())
         updated_state.processed_documents = [sample_state.processed_documents[1]]
         updated_state.box1_total_income = 2000.0
         updated_state.box3_total_assets_jan1 = 5000.0
         
-        session_manager.get_current_state = Mock(side_effect=[sample_state, updated_state])
-        
         with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
-            agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
-            agent.session_manager = session_manager
-            
-            result = agent.remove_documents(doc_ids=["doc1"])
-            
-            # Should verify state was persisted
-            assert session_manager.get_current_state.call_count == 2
-            assert result.processed_documents[0]["id"] == "doc2"
+            with patch('dutch_tax_agent.agent.get_thread_state', side_effect=[sample_state, updated_state]) as mock_get:
+                agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
+                
+                result = agent.remove_documents(doc_ids=["doc1"])
+                
+                # Should verify state was persisted (called twice - once to get, once to verify)
+                assert mock_get.call_count == 2
+                assert result.processed_documents[0]["id"] == "doc2"
     
     def test_remove_documents_raises_if_state_not_found(
-        self, mock_graph: Mock, session_manager
+        self, mock_graph: Mock
     ):
-        """Test that remove_documents raises if session not found."""
+        """Test that remove_documents raises if thread not found."""
         from dutch_tax_agent.agent import DutchTaxAgent
+        from unittest.mock import patch
         
         thread_id = "non-existent"
-        session_manager.get_current_state = Mock(return_value=None)
         
         with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
-            agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
-            agent.session_manager = session_manager
-            
-            with pytest.raises(ValueError, match="Session.*not found"):
-                agent.remove_documents(doc_ids=["doc1"])
+            with patch('dutch_tax_agent.agent.get_thread_state', return_value=None):
+                agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
+                with pytest.raises(ValueError, match="Thread.*not found"):
+                    agent.remove_documents(doc_ids=["doc1"])
     
     def test_remove_documents_by_filename(
-        self, mock_graph: Mock, session_manager, sample_state
+        self, mock_graph: Mock, sample_state
     ):
         """Test removing documents by filename."""
         from dutch_tax_agent.agent import DutchTaxAgent
         from dutch_tax_agent.schemas.state import TaxGraphState
+        from unittest.mock import patch
         
         thread_id = "test-thread"
-        session_manager.create_session(thread_id, tax_year=2024)
         
         updated_state = TaxGraphState(**sample_state.model_dump())
         updated_state.processed_documents = [sample_state.processed_documents[1]]
         updated_state.box1_total_income = 2000.0
         updated_state.box3_total_assets_jan1 = 5000.0
         
-        session_manager.get_current_state = Mock(side_effect=[sample_state, updated_state])
-        
         with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
-            agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
-            agent.session_manager = session_manager
-            
-            result = agent.remove_documents(filenames=["doc1.pdf"])
-            
-            # Verify doc1 was removed
-            call_args = mock_graph.update_state.call_args
-            updates = call_args[0][1]
-            assert len(updates["processed_documents"]) == 1
-            assert updates["processed_documents"][0]["filename"] == "doc2.pdf"
+            with patch('dutch_tax_agent.agent.get_thread_state', side_effect=[sample_state, updated_state]):
+                agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
+                
+                result = agent.remove_documents(filenames=["doc1.pdf"])
+                
+                # Verify doc1 was removed
+                call_args = mock_graph.update_state.call_args
+                updates = call_args[0][1]
+                assert len(updates["processed_documents"]) == 1
+                assert updates["processed_documents"][0]["filename"] == "doc2.pdf"
     
     def test_remove_documents_deduplicates_assets(
-        self, mock_graph: Mock, session_manager
+        self, mock_graph: Mock
     ):
         """Test that remove_documents deduplicates Box 3 assets."""
         from dutch_tax_agent.agent import DutchTaxAgent
         from dutch_tax_agent.schemas.state import TaxGraphState
         from datetime import date
+        from unittest.mock import patch
         
         thread_id = "test-thread"
-        session_manager.create_session(thread_id, tax_year=2024)
         
         # Create state with duplicate assets
         state = TaxGraphState(
@@ -871,19 +855,17 @@ class TestAgentDocumentRemoval:
         updated_state.box3_asset_items = [state.box3_asset_items[0]]  # Deduplicated
         updated_state.box3_total_assets_jan1 = 10000.0  # Correct total
         
-        session_manager.get_current_state = Mock(side_effect=[state, updated_state])
-        
         with patch('dutch_tax_agent.agent.create_tax_graph', return_value=mock_graph):
-            agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
-            agent.session_manager = session_manager
-            
-            # Remove no documents, but should still deduplicate
-            result = agent.remove_documents(doc_ids=[])
-            
-            # Verify deduplication happened
-            call_args = mock_graph.update_state.call_args
-            updates = call_args[0][1]
-            # Should have only 1 asset after deduplication
-            assert len(updates["box3_asset_items"]) == 1
-            assert updates["box3_total_assets_jan1"] == 10000.0
+            with patch('dutch_tax_agent.agent.get_thread_state', side_effect=[state, updated_state]):
+                agent = DutchTaxAgent(thread_id=thread_id, tax_year=2024)
+                
+                # Remove no documents, but should still deduplicate
+                result = agent.remove_documents(doc_ids=[])
+                
+                # Verify deduplication happened
+                call_args = mock_graph.update_state.call_args
+                updates = call_args[0][1]
+                # Should have only 1 asset after deduplication
+                assert len(updates["box3_asset_items"]) == 1
+                assert updates["box3_total_assets_jan1"] == 10000.0
 

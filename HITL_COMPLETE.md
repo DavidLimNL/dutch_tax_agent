@@ -2,13 +2,13 @@
 
 ## Summary
 
-Successfully implemented a comprehensive Human-in-the-Loop (HITL) workflow for the Dutch Tax Agent. The system now supports iterative document processing with session persistence, allowing users to add documents incrementally, review extracted data, and trigger calculations when ready.
+Successfully implemented a comprehensive Human-in-the-Loop (HITL) workflow for the Dutch Tax Agent. The system now supports iterative document processing with thread persistence, allowing users to add documents incrementally, review extracted data, and trigger calculations when ready.
 
 ## Key Achievements
 
 ### ✅ Core Functionality
 - [x] **Single graph with loops** - Elegant architecture using LangGraph's Command API
-- [x] **Session management** - Create, list, view, and delete sessions
+- [x] **Thread management** - Create, list, view, and delete threads
 - [x] **Document deduplication** - SHA256 hashing prevents reprocessing
 - [x] **Document removal** - Remove by ID, filename, or all documents
 - [x] **Automatic recalculation** - Totals updated after document changes
@@ -17,9 +17,9 @@ Successfully implemented a comprehensive Human-in-the-Loop (HITL) workflow for t
 
 ### ✅ New Components
 1. **DocumentManager** - PDF hashing, deduplication, removal, recalculation
-2. **SessionManager** - Session CRUD, persistence, state retrieval
+2. **ThreadManager** - Thread CRUD, persistence, state retrieval
 3. **HITL Control Node** - Pause/resume/loop routing logic
-4. **Updated CLI** - 7 new commands (ingest, status, calculate, remove, sessions, reset, version)
+4. **Updated CLI** - 7 new commands (ingest, status, calculate, remove, threads, reset, version)
 
 ### ✅ Documentation
 - Complete HITL workflow guide (`docs/hitl_workflow.md`)
@@ -29,7 +29,7 @@ Successfully implemented a comprehensive Human-in-the-Loop (HITL) workflow for t
 
 ### ✅ Testing
 - Unit tests for DocumentManager ✓
-- Unit tests for SessionManager ✓
+- Unit tests for ThreadManager ✓
 - Unit tests for thread ID generation ✓
 - All tests passing ✓
 
@@ -45,7 +45,7 @@ Successfully implemented a comprehensive Human-in-the-Loop (HITL) workflow for t
 ```bash
 # 1. Process documents
 uv run dutch-tax-agent ingest -i ~/my_tax_docs --year 2024
-# Output: Session tax2024-abc123def456
+# Output: Thread tax2024-abc123def456
 
 # 2. Check status
 uv run dutch-tax-agent status -t tax2024-abc123def456
@@ -57,13 +57,13 @@ uv run dutch-tax-agent ingest -i ~/more_docs -t tax2024-abc123def456
 uv run dutch-tax-agent calculate -t tax2024-abc123def456
 ```
 
-### Session Management
+### Thread Management
 
 ```bash
-# List all sessions
-uv run dutch-tax-agent sessions
+# List all threads
+uv run dutch-tax-agent threads
 
-# Delete a session
+# Delete a thread
 uv run dutch-tax-agent reset -t tax2024-abc123def456
 ```
 
@@ -86,14 +86,14 @@ START → dispatcher → parsers → validators → aggregator → reducer → H
 
 ### State Management
 - **Checkpoints**: `~/.dutch_tax_agent/checkpoints.db` (SQLite)
-- **Sessions**: `~/.dutch_tax_agent/sessions.json` (JSON registry)
+- **Threads**: `~/.dutch_tax_agent/threads.json` (JSON registry)
 - **Deduplication**: SHA256 hashes in `processed_documents` list
 
 ## Files Changed/Created
 
 ### Created (5 files)
 1. `src/dutch_tax_agent/document_manager.py` - Document lifecycle management
-2. `src/dutch_tax_agent/session_manager.py` - Session persistence
+2. `src/dutch_tax_agent/thread_manager.py` - Thread persistence
 3. `src/dutch_tax_agent/graph/nodes/hitl_control.py` - HITL routing logic
 4. `docs/hitl_workflow.md` - Complete workflow guide
 5. `docs/QUICK_REFERENCE.md` - Command reference card
@@ -119,8 +119,8 @@ Testing thread ID generation...
 Testing DocumentManager...
 ✓ DocumentManager tests passed
 
-Testing SessionManager...
-✓ SessionManager tests passed
+Testing ThreadManager...
+✓ ThreadManager tests passed
 
 ==================================================
 ✓ All tests passed!
@@ -141,16 +141,16 @@ CHECKPOINT_DB_PATH=~/.dutch_tax_agent/checkpoints.db
 ### For Users
 1. Read the [HITL Workflow Guide](docs/hitl_workflow.md)
 2. Try the basic workflow with sample documents
-3. Explore session management features
+3. Explore thread management features
 
 ### For Developers
 Potential future enhancements:
 - Interactive review mode (approve/reject extracted values)
 - Manual corrections to extracted data
 - Document preview in CLI
-- Web UI for session management
+- Web UI for thread management
 - Undo/redo operations
-- Export session data to JSON/CSV
+- Export thread data to JSON/CSV
 - Watch mode for automatic processing
 
 ## Notes
@@ -165,7 +165,7 @@ Potential future enhancements:
 ```
 ~/.dutch_tax_agent/
 ├── checkpoints.db     # SQLite checkpoint storage
-└── sessions.json      # Session registry
+└── threads.json      # Thread registry
 ```
 
 To reset everything:
@@ -202,5 +202,5 @@ For issues or questions:
 
 **Implementation completed successfully! 🎉**
 
-The Dutch Tax Agent now supports full HITL workflows with persistent session management, document deduplication, and flexible incremental processing.
+The Dutch Tax Agent now supports full HITL workflows with persistent thread management, document deduplication, and flexible incremental processing.
 

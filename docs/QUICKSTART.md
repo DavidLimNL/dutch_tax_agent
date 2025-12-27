@@ -124,7 +124,7 @@ agent = DutchTaxAgent(tax_year=2024)
 # Or disable fiscal partner
 # agent = DutchTaxAgent(tax_year=2024, has_fiscal_partner=False)
 
-# Ingest documents (creates new session)
+# Ingest documents (creates new thread)
 pdf_files = [
     Path("sample_docs/bank_statement.pdf"),
     Path("sample_docs/salary.pdf"),
