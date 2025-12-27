@@ -14,7 +14,7 @@ from dutch_tax_agent.config import settings
 from dutch_tax_agent.document_manager import DocumentManager
 from dutch_tax_agent.graph import create_tax_graph
 from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
-from dutch_tax_agent.schemas.state import TaxGraphState
+from dutch_tax_agent.schemas.state import TaxGraphState, Replace
 
 # Suppress all Presidio logging BEFORE basicConfig to prevent any output
 # Use NullHandler to completely silence Presidio loggers
@@ -169,6 +169,7 @@ class DutchTaxAgent:
                         "text": result["text"],
                         "filename": pdf_path.name,
                         "page_count": result["page_count"],
+                        "doc_id": metadata["id"],  # Pass the ID to ensure consistency
                     })
                     progress.advance(task)
                 except Exception as e:
@@ -345,22 +346,36 @@ class DutchTaxAgent:
 
         console.print(f"[green]✓[/green] Removed {len(removed_ids)} document(s)")
 
+        # Also filter extraction_results and validated_results
+        removed_ids_set = set(removed_ids)
+
         # Recalculate totals and filter items
+        # Also pass removed_filenames to handle cases where doc_ids might not match
+        # (e.g. if items were created with random IDs but processed_docs has hash IDs)
+        removed_filenames = [
+            doc["filename"] 
+            for doc in state.processed_documents 
+            if doc["id"] in removed_ids_set
+        ]
+        
         updated_totals = self.document_manager.recalculate_totals_from_items(
             state.box1_income_items,
             state.box3_asset_items,
-            removed_ids
+            removed_ids,
+            removed_filenames=removed_filenames
         )
 
-        # Also filter extraction_results and validated_results
-        removed_ids_set = set(removed_ids)
+        removed_filenames_set = set(removed_filenames)
+        
         updated_extraction_results = [
             result for result in state.extraction_results
-            if result.doc_id not in removed_ids_set
+            if result.doc_id not in removed_ids_set and result.source_filename not in removed_filenames_set
         ]
         updated_validated_results = [
             result for result in state.validated_results
-            if result.get("doc_id") not in removed_ids_set
+            if result.get("doc_id") not in removed_ids_set and 
+            (not result.get("validated_box1_items") or result["validated_box1_items"][0].get("source_filename") not in removed_filenames_set) and
+            (not result.get("validated_box3_items") or result["validated_box3_items"][0].get("source_filename") not in removed_filenames_set)
         ]
 
         # Update state - need to use update_and_resume with a dummy node to ensure checkpoint is created
@@ -371,10 +386,10 @@ class DutchTaxAgent:
         # Create a complete state update
         state_updates = {
             "processed_documents": updated_docs,
-            "extraction_results": updated_extraction_results,
-            "validated_results": updated_validated_results,
-            "box1_income_items": updated_totals["box1_income_items"],
-            "box3_asset_items": updated_totals["box3_asset_items"],
+            "extraction_results": Replace(updated_extraction_results),
+            "validated_results": Replace(updated_validated_results),
+            "box1_income_items": Replace(updated_totals["box1_income_items"]),
+            "box3_asset_items": Replace(updated_totals["box3_asset_items"]),
             "box1_total_income": updated_totals["box1_total_income"],
             "box3_total_assets_jan1": updated_totals["box3_total_assets_jan1"],
             "last_command": "remove"

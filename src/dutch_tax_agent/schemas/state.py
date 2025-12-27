@@ -1,7 +1,6 @@
 """LangGraph state definitions for the main graph and subgraphs."""
 
-from operator import add
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal, Optional, TypeVar, Union, List
 
 from langgraph.graph import add_messages
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +12,18 @@ from dutch_tax_agent.schemas.tax_entities import (
     Box3Calculation,
     FiscalPartner,
 )
+
+T = TypeVar("T")
+
+class Replace(List[T]):
+    """Wrapper to signal replacement in a reducer."""
+    pass
+
+def add_or_replace(existing: List[T], new: Union[List[T], Replace[T]]) -> List[T]:
+    """Reducer that appends by default, but replaces if Replace wrapper is used."""
+    if isinstance(new, Replace):
+        return list(new)
+    return existing + new
 
 
 class TaxGraphState(BaseModel):
@@ -47,26 +58,27 @@ class TaxGraphState(BaseModel):
     )
     
     # --- Processing: Extraction Results (Phase 2 Output) ---
-    # Using Annotated with 'add' operator to accumulate results from parallel parser agents
-    extraction_results: Annotated[list[ExtractionResult], add] = Field(
+    # Using Annotated with 'add_or_replace' operator to accumulate results from parallel parser agents
+    # But allowing full replacement for removals
+    extraction_results: Annotated[list[ExtractionResult], add_or_replace] = Field(
         default_factory=list,
         description="Raw extraction results from parser agents (before validation)",
     )
     
     # --- Validation Results (Validator Output) ---
-    # Using Annotated with 'add' operator to accumulate results from parallel validators
-    validated_results: Annotated[list[dict], add] = Field(
+    # Using Annotated with 'add_or_replace' operator to accumulate results from parallel validators
+    validated_results: Annotated[list[dict], add_or_replace] = Field(
         default_factory=list,
         description="Validated results from validator nodes (accumulated from parallel executions)",
     )
     
     # --- Aggregated Data: Validated Entities (Phase 2 Reducer Output) ---
-    # Using Annotated with 'add' operator to accumulate items across multiple ingestions
-    box1_income_items: Annotated[list[Box1Income], add] = Field(
+    # Using Annotated with 'add_or_replace' operator to accumulate items across multiple ingestions
+    box1_income_items: Annotated[list[Box1Income], add_or_replace] = Field(
         default_factory=list,
         description="All validated Box 1 income items",
     )
-    box3_asset_items: Annotated[list[Box3Asset], add] = Field(
+    box3_asset_items: Annotated[list[Box3Asset], add_or_replace] = Field(
         default_factory=list,
         description="All validated Box 3 asset items",
     )

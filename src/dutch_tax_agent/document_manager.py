@@ -115,7 +115,8 @@ class DocumentManager:
         self,
         box1_items: list[Box1Income],
         box3_items: list[Box3Asset],
-        removed_doc_ids: list[str]
+        removed_doc_ids: list[str],
+        removed_filenames: Optional[list[str]] = None
     ) -> dict:
         """Recalculate Box 1/3 totals after document removal.
         
@@ -123,22 +124,35 @@ class DocumentManager:
             box1_items: List of Box 1 income items
             box3_items: List of Box 3 asset items
             removed_doc_ids: List of removed document IDs
+            removed_filenames: Optional list of removed filenames (for fallback filtering)
             
         Returns:
             Dict with updated totals and filtered items
         """
         removed_doc_ids_set = set(removed_doc_ids)
+        removed_filenames_set = set(removed_filenames) if removed_filenames else set()
         
         # Filter out items from removed documents
-        updated_box1_items = [
-            item for item in box1_items 
-            if item.source_doc_id not in removed_doc_ids_set
-        ]
+        updated_box1_items = []
+        for item in box1_items:
+            if item.source_doc_id in removed_doc_ids_set:
+                logger.debug(f"Removing Box1 item from doc {item.source_doc_id}")
+            elif item.source_filename in removed_filenames_set:
+                logger.debug(f"Removing Box1 item by filename {item.source_filename} (doc_id mismatch: {item.source_doc_id})")
+            else:
+                updated_box1_items.append(item)
         
-        updated_box3_items = [
-            item for item in box3_items
-            if item.source_doc_id not in removed_doc_ids_set
-        ]
+        updated_box3_items = []
+        for item in box3_items:
+            if item.source_doc_id in removed_doc_ids_set:
+                logger.debug(f"Removing Box3 item from doc {item.source_doc_id}")
+            elif item.source_filename in removed_filenames_set:
+                logger.debug(f"Removing Box3 item by filename {item.source_filename} (doc_id mismatch: {item.source_doc_id})")
+            else:
+                updated_box3_items.append(item)
+                if item.source_doc_id not in removed_doc_ids_set:
+                    logger.debug(f"Keeping Box3 item {item.description} (source_doc_id: {item.source_doc_id}) - not in removed set: {removed_doc_ids_set}")
+
         
         # Deduplicate Box 3 assets (same account_number, same source_doc_id, same values)
         # This handles cases where duplicates might exist due to processing issues

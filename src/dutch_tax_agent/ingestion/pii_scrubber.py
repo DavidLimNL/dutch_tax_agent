@@ -207,6 +207,7 @@ class PIIScrubber:
                     text=doc["text"],
                     filename=doc["filename"],
                     page_count=doc.get("page_count", 1),
+                    doc_id=doc.get("doc_id"),  # Pass the ID if provided
                 )
                 scrubbed_docs.append(scrubbed)
             except Exception as e:
