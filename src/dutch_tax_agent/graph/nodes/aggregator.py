@@ -27,10 +27,23 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
     Returns:
         Updated state dict
     """
-    # Get validated results from state (accumulated from parallel validator executions)
-    validated_results = state.validated_results
+    # Get the IDs of documents currently being processed in this run
+    # This is crucial because validated_results accumulates across runs (Annotated[list, add])
+    # We only want to aggregate results for the documents in the current batch
+    current_doc_ids = {doc.doc_id for doc in state.documents}
     
-    logger.info(f"Aggregating {len(validated_results)} validated results")
+    # Filter validated results to only include those from the current batch
+    # This prevents re-aggregating results from previous runs which would cause duplicates
+    all_validated_results = state.validated_results
+    validated_results = [
+        r for r in all_validated_results 
+        if r.get("doc_id") in current_doc_ids
+    ]
+    
+    logger.info(
+        f"Aggregating {len(validated_results)} validated results from current batch "
+        f"(filtered from {len(all_validated_results)} total history)"
+    )
 
     all_box1_items = []
     all_box3_items = []
@@ -113,8 +126,31 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
     
     # Merge Box3Asset items from the same account
     # Accounts are identified by account_number + asset_type (preferred) or description + asset_type (fallback)
+    # IMPORTANT: Include existing items from state to prevent duplicates during incremental ingestion
     account_map: dict[tuple[str, str, str], list[Box3Asset]] = defaultdict(list)
     
+    # Track which doc_ids are in the new batch to deduplicate existing items from the same documents
+    new_doc_ids = {asset.source_doc_id for asset in all_box3_items}
+    
+    # First, add existing items from state (for incremental ingestion deduplication)
+    # But skip items from documents that are being reprocessed (to prevent duplicates)
+    for existing_asset in state.box3_asset_items:
+        # Skip existing items from documents that are in the new batch (they'll be replaced)
+        if existing_asset.source_doc_id in new_doc_ids:
+            logger.debug(
+                f"Skipping existing asset from doc {existing_asset.source_doc_id} "
+                f"({existing_asset.source_filename}) - document is being reprocessed"
+            )
+            continue
+        
+        # Create a key: prefer account_number if available, otherwise use description
+        if existing_asset.account_number:
+            account_key = ("account_number", existing_asset.account_number, existing_asset.asset_type)
+        else:
+            account_key = ("description", existing_asset.description or "", existing_asset.asset_type)
+        account_map[account_key].append(existing_asset)
+    
+    # Then, add new items from validated_results
     for asset in all_box3_items:
         # Create a key: prefer account_number if available, otherwise use description
         # Format: (match_type, identifier, asset_type) where match_type is "account_number" or "description"
@@ -537,9 +573,39 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             f"Structured data retained."
         )
 
+    # IMPORTANT: Because box3_asset_items uses the 'add' operator, LangGraph will append
+    # the returned list to existing items. We've already merged new items with existing
+    # items in account_map, so we need to return ONLY items that involve new documents.
+    # 
+    # Strategy: Return only merged items from accounts that had new items.
+    # This includes:
+    # 1. New accounts (only new items)
+    # 2. Existing accounts that got new items (merged new + existing)
+    items_to_return = []
+    for merged_item in merged_box3_items:
+        # Determine the account key for this merged item
+        if merged_item.account_number:
+            item_account_key = ("account_number", merged_item.account_number, merged_item.asset_type)
+        else:
+            item_account_key = ("description", merged_item.description or "", merged_item.asset_type)
+        
+        # Check if this account had any new items (from new_doc_ids)
+        account_assets = account_map.get(item_account_key, [])
+        has_new_items = any(asset.source_doc_id in new_doc_ids for asset in account_assets)
+        
+        if has_new_items:
+            # This account has new items - return the merged result
+            # (either new account or merged with existing)
+            items_to_return.append(merged_item)
+    
+    logger.info(
+        f"Returning {len(items_to_return)} Box3 items (from {len(merged_box3_items)} merged items, "
+        f"{len(new_doc_ids)} new documents)"
+    )
+    
     return {
         "box1_income_items": all_box1_items,
-        "box3_asset_items": all_box3_items,
+        "box3_asset_items": items_to_return,  # Return only new/merged items, not existing ones
         "validation_errors": list(state.validation_errors) + all_errors,
         "validation_warnings": list(state.validation_warnings) + all_warnings,
         "status": "validating",
