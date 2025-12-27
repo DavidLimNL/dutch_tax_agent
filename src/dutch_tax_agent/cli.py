@@ -116,6 +116,7 @@ def status(
         # Display Box 3 assets table (same format as aggregator)
         if status_info.get('box3_items'):
             box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
+            box3_table.add_column("#", style="dim", justify="right")
             box3_table.add_column("Description", style="cyan", no_wrap=False)
             box3_table.add_column("Asset Type", style="green")
             box3_table.add_column("Account Number", style="yellow")
@@ -124,7 +125,7 @@ def status(
             box3_table.add_column("Dec 31 (€)", justify="right", style="bold")
             box3_table.add_column("Notes", style="dim", no_wrap=False)
             
-            for asset_data in status_info['box3_items']:
+            for i, asset_data in enumerate(status_info['box3_items']):
                 account_num = asset_data["account_number"]
                 if account_num:
                     account_num_text = Text(account_num, style="bold cyan")
@@ -132,6 +133,7 @@ def status(
                     account_num_text = ""
                 
                 box3_table.add_row(
+                    str(i),
                     asset_data["description"],
                     asset_data["asset_type"],
                     account_num_text,
@@ -219,6 +221,53 @@ def remove(
         console.print(f"  Box 1 Total: €{status_info['box1_total']:,.2f}")
         console.print(f"  Box 3 Total: €{status_info['box3_total']:,.2f}")
         
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        raise typer.Exit(1)
+
+
+@app.command(name="remove-asset")
+def remove_asset(
+    thread_id: str = typer.Option(..., "--thread-id", "-t", help="Thread ID"),
+    indices: Optional[list[int]] = typer.Option(None, "--index", "-i", help="Asset index to remove (can be used multiple times)"),
+    all: bool = typer.Option(False, "--all", help="Remove all Box 3 assets"),
+):
+    """Remove Box 3 assets from a thread."""
+    if not indices and not all:
+         console.print("[red]Error: Must specify --index or --all[/red]")
+         raise typer.Exit(1)
+         
+    if all:
+         if not typer.confirm("Remove ALL Box 3 assets?"):
+             raise typer.Exit(0)
+
+    agent = DutchTaxAgent(thread_id=thread_id)
+    try:
+        state = agent.remove_box3_assets(indices=indices, remove_all=all)
+        console.print(f"\n[green]✓ Updated Box 3 assets[/green]")
+        console.print(f"  New Total: €{state.box3_total_assets_jan1:,.2f}")
+        console.print(f"  Remaining Items: {len(state.box3_asset_items)}")
+        
+        # Show updated table
+        # We can't reuse status() easily because it creates a new agent, so we fetch status manually
+        status_info = agent.get_status()
+        
+        if status_info.get('box3_items'):
+            box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
+            box3_table.add_column("#", style="dim", justify="right")
+            box3_table.add_column("Description", style="cyan", no_wrap=False)
+            box3_table.add_column("Asset Type", style="green")
+            box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
+            
+            for i, asset_data in enumerate(status_info['box3_items']):
+                box3_table.add_row(
+                    str(i),
+                    asset_data["description"],
+                    asset_data["asset_type"],
+                    f"{asset_data['jan1']:,.2f}",
+                )
+            console.print(box3_table)
+            
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         raise typer.Exit(1)

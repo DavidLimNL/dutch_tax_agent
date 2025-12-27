@@ -451,6 +451,74 @@ class DutchTaxAgent:
 
         return updated_state
 
+    def remove_box3_assets(
+        self,
+        indices: Optional[list[int]] = None,
+        remove_all: bool = False
+    ) -> TaxGraphState:
+        """Remove Box 3 assets by index and recalculate.
+
+        Args:
+            indices: List of asset indices to remove
+            remove_all: If True, remove all assets
+
+        Returns:
+            Updated TaxGraphState
+        """
+        state = get_thread_state(
+            self.graph.checkpointer,
+            self.thread_id
+        )
+        if not state:
+            raise ValueError(f"Thread {self.thread_id} not found")
+
+        current_assets = state.box3_asset_items
+        
+        if remove_all:
+            updated_assets = []
+            removed_count = len(current_assets)
+        else:
+            if not indices:
+                return state
+                
+            # Validate indices
+            indices_set = set(indices)
+            max_index = len(current_assets) - 1
+            
+            invalid_indices = [i for i in indices_set if i < 0 or i > max_index]
+            if invalid_indices:
+                raise ValueError(f"Invalid indices: {invalid_indices}. Max index is {max_index}")
+            
+            updated_assets = [
+                asset for i, asset in enumerate(current_assets)
+                if i not in indices_set
+            ]
+            removed_count = len(current_assets) - len(updated_assets)
+
+        # Recalculate total
+        new_total = sum(asset.value_eur_jan1 for asset in updated_assets)
+        
+        # Update state
+        config = {"configurable": {"thread_id": self.thread_id}}
+        
+        state_updates = {
+            "box3_asset_items": Replace(updated_assets),
+            "box3_total_assets_jan1": new_total,
+            "last_command": "remove-asset"
+        }
+        
+        logger.info(f"Removing {removed_count} Box 3 assets. New total: {new_total}")
+        
+        self.graph.update_state(config, state_updates)
+        
+        # Retrieve and return updated state
+        updated_state = get_thread_state(
+            self.graph.checkpointer,
+            self.thread_id
+        )
+        
+        return updated_state
+
     def calculate_taxes(self) -> TaxGraphState:
         """Trigger Box 3 calculation.
         

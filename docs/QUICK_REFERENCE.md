@@ -39,6 +39,18 @@ uv run dutch-tax-agent remove -t <session-id> --filename <name>
 uv run dutch-tax-agent remove -t <session-id> --all
 ```
 
+### Remove Box 3 Assets
+```bash
+# Check indices first
+uv run dutch-tax-agent status -t <session-id>
+
+# Remove by index
+uv run dutch-tax-agent remove-asset -t <session-id> --index 1 --index 3
+
+# Remove all Box 3 assets
+uv run dutch-tax-agent remove-asset -t <session-id> --all
+```
+
 ### List All Sessions
 ```bash
 uv run dutch-tax-agent sessions
@@ -75,7 +87,10 @@ uv run dutch-tax-agent ingest -i ~/more_docs -t tax2024-abc123
 # 4. Remove wrong doc
 uv run dutch-tax-agent remove -t tax2024-abc123 --filename wrong.pdf
 
-# 5. Calculate
+# 5. Remove specific asset
+uv run dutch-tax-agent remove-asset -t tax2024-abc123 --index 1
+
+# 6. Calculate
 uv run dutch-tax-agent calculate -t tax2024-abc123
 ```
 

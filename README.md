@@ -116,20 +116,24 @@ The HITL workflow allows you to iteratively process documents and review data be
 
 ```bash
 # Step 1: Process initial documents
-uv run dutch-tax-agent ingest --input-dir ./sample_docs --year 2024
+uv run dutch-tax-agent ingest -i ./sample_docs -y 2024
 # Output: Thread tax2024-abc123 created
 
 # Step 2: Check extracted data
-uv run dutch-tax-agent status --thread-id tax2024-abc123
+uv run dutch-tax-agent status -t tax2024-abc123
 
 # Step 3: Add more documents (optional)
-uv run dutch-tax-agent ingest --input-dir ./more_docs --thread-id tax2024-abc123
+uv run dutch-tax-agent ingest -i ./more_docs -t tax2024-abc123
 
 # Step 4: Remove wrong documents (optional)
-uv run dutch-tax-agent remove --thread-id tax2024-abc123 -d a1b2c3d4e5f6
+uv run dutch-tax-agent remove -t tax2024-abc123 -d a1b2c3d4e5f6
 
-# Step 5: Calculate taxes
-uv run dutch-tax-agent calculate --thread-id tax2024-abc123
+# Step 5: Remove specific Box 3 assets (optional)
+# First check indices with 'status' command
+uv run dutch-tax-agent remove-asset -t tax2024-abc123 -i 0 -i 2
+
+# Step 6: Calculate taxes
+uv run dutch-tax-agent calculate -t tax2024-abc123
 
 # List all threads
 uv run dutch-tax-agent threads
@@ -143,14 +147,32 @@ You can also ingest and calculate in a single workflow by chaining commands:
 
 ```bash
 # Get the thread ID from ingest, then calculate immediately
-THREAD_ID=$(uv run dutch-tax-agent ingest -i ./sample_docs --year 2024 | grep -oP 'tax2024-\w+')
+THREAD_ID=$(uv run dutch-tax-agent ingest -i ./sample_docs -y 2024 | grep -oP 'tax2024-\w+')
 uv run dutch-tax-agent calculate -t $THREAD_ID
 
 # Or manually with specific thread ID
-uv run dutch-tax-agent ingest -i ./sample_docs --year 2024
+uv run dutch-tax-agent ingest -i ./sample_docs -y 2024
 # Note the thread ID output (e.g., tax2024-abc123)
 uv run dutch-tax-agent calculate -t tax2024-abc123
 ```
+
+### Command-line Flags
+
+All commands support both full flags and shorthand versions:
+
+| Full Flag | Shorthand | Description |
+|-----------|-----------|-------------|
+| `--input-dir` | `-i` | Directory containing PDF tax documents |
+| `--year` | `-y` | Tax year to process (2022-2025) |
+| `--thread-id` | `-t` | Thread ID for state management |
+| `--doc-id` | `-d` | Document ID(s) to remove |
+| `--index` | `-i` | Asset index to remove (for `remove-asset` command) |
+| `--limit` | `-l` | Maximum number of threads to show |
+| `--no-fiscal-partner` | *(none)* | Disable fiscal partnership |
+| `--filename` | *(none)* | Filename(s) to remove |
+| `--all` | *(none)* | Remove all documents/assets |
+
+**Note**: The `-i` shorthand is used for both `--input-dir` (in `ingest` command) and `--index` (in `remove-asset` command). The context determines which flag is intended.
 
 ## 💾 Checkpointing & State Management
 
@@ -174,7 +196,7 @@ CHECKPOINT_DB_PATH=~/.dutch_tax_agent/checkpoints.db  # Default
 
 ```bash
 # Process documents incrementally
-uv run dutch-tax-agent ingest -i ~/docs --year 2024
+uv run dutch-tax-agent ingest -i ~/docs -y 2024
 
 # View thread status
 uv run dutch-tax-agent status -t tax2024-abc123

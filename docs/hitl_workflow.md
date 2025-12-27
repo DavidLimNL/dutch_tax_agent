@@ -38,7 +38,7 @@ dutch-tax-agent status --thread-id tax2024-abc123def456
 This displays:
 - Documents processed
 - Extracted Box 1 income
-- Extracted Box 3 assets
+- Extracted Box 3 assets (with indices for removal)
 - Validation warnings/errors
 - Next available actions
 
@@ -71,7 +71,28 @@ dutch-tax-agent remove --thread-id tax2024-abc123def456 --all
 
 The system automatically recalculates Box 1/3 totals after removal.
 
-### 5. Calculate Taxes
+### 5. Remove Individual Assets (Optional)
+
+If a document contained multiple assets and you only want to remove specific ones (e.g., duplicates or misclassifications), you can remove them by index.
+
+```bash
+# First, check the asset indices
+dutch-tax-agent status --thread-id tax2024-abc123def456
+# Look for the '#' column in the Box 3 Assets table
+
+# Remove a single asset (e.g., index 1)
+dutch-tax-agent remove-asset --thread-id tax2024-abc123def456 --index 1
+
+# Remove multiple assets
+dutch-tax-agent remove-asset --thread-id tax2024-abc123def456 --index 0 --index 2
+
+# Remove all Box 3 assets (with confirmation)
+dutch-tax-agent remove-asset --thread-id tax2024-abc123def456 --all
+```
+
+The system recalculates the Box 3 total immediately.
+
+### 6. Calculate Taxes
 
 ```bash
 # Trigger Box 3 calculations
@@ -244,7 +265,7 @@ rm -rf ~/.dutch_tax_agent/
 - **No concurrent threads**: Don't run multiple commands on the same thread simultaneously
 - **No state merging**: Adding documents replaces `documents` list (old docs cleared from state, but metadata remains)
 - **Document order**: Documents processed in filesystem order
-- **No partial removal**: Can't remove individual line items, only entire documents
+- **Partial removal**: Can remove individual Box 3 assets, but not Box 1 income items yet
 
 ## Future Enhancements
 
@@ -254,5 +275,5 @@ Planned features for future releases:
 - Export thread data to JSON/CSV
 - Web UI for thread management
 - Undo/redo operations
-- Manual corrections to extracted values
+- Manual corrections to Box 1 income values
 
