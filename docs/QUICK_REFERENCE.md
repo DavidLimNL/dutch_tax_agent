@@ -30,7 +30,7 @@ uv run dutch-tax-agent calculate -t <session-id>
 ### Remove Documents
 ```bash
 # By document ID
-uv run dutch-tax-agent remove -t <session-id> --doc-id <id>
+uv run dutch-tax-agent remove -t <session-id> -d <id>
 
 # By filename
 uv run dutch-tax-agent remove -t <session-id> --filename <name>

@@ -126,7 +126,7 @@ uv run dutch-tax-agent status --thread-id tax2024-abc123
 uv run dutch-tax-agent ingest --input-dir ./more_docs --thread-id tax2024-abc123
 
 # Step 4: Remove wrong documents (optional)
-uv run dutch-tax-agent remove --thread-id tax2024-abc123 --doc-id a1b2c3d4e5f6
+uv run dutch-tax-agent remove --thread-id tax2024-abc123 -d a1b2c3d4e5f6
 
 # Step 5: Calculate taxes
 uv run dutch-tax-agent calculate --thread-id tax2024-abc123

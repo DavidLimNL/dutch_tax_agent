@@ -159,7 +159,7 @@ def status(
             console.print(f"\n[yellow]Next steps:[/yellow]")
             console.print(f"  • Add more documents: [dim]dutch-tax-agent ingest -i <dir> -t {thread_id}[/dim]")
             console.print(f"  • Calculate taxes: [dim]dutch-tax-agent calculate -t {thread_id}[/dim]")
-            console.print(f"  • Remove documents: [dim]dutch-tax-agent remove -t {thread_id} --doc-id <id>[/dim]")
+            console.print(f"  • Remove documents: [dim]dutch-tax-agent remove -t {thread_id} -d <id>[/dim]")
         
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
@@ -185,14 +185,14 @@ def calculate(
 @app.command()
 def remove(
     thread_id: str = typer.Option(..., "--thread-id", "-t", help="Thread ID"),
-    doc_id: Optional[list[str]] = typer.Option(None, "--doc-id", help="Document ID(s) to remove"),
+    doc_id: Optional[list[str]] = typer.Option(None, "--doc-id", "-d", help="Document ID(s) to remove"),
     filename: Optional[list[str]] = typer.Option(None, "--filename", help="Filename(s) to remove"),
     all: bool = typer.Option(False, "--all", help="Remove all documents"),
 ):
     """Remove processed documents from a thread."""
     
     if not doc_id and not filename and not all:
-        console.print("[red]Error: Must specify --doc-id, --filename, or --all[/red]")
+        console.print("[red]Error: Must specify -d/--doc-id, --filename, or --all[/red]")
         raise typer.Exit(1)
     
     if all:

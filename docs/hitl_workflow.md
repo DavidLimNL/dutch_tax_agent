@@ -60,7 +60,7 @@ The system automatically:
 
 ```bash
 # Remove by document ID
-dutch-tax-agent remove --thread-id tax2024-abc123def456 --doc-id a1b2c3d4e5f6
+dutch-tax-agent remove --thread-id tax2024-abc123def456 -d a1b2c3d4e5f6
 
 # Remove by filename
 dutch-tax-agent remove --thread-id tax2024-abc123def456 --filename wrong_statement.pdf
@@ -181,7 +181,7 @@ dutch-tax-agent ingest -i ~/tax2024/ -t tax2024-abc123
 # Step 4: Wrong document was added
 dutch-tax-agent status -t tax2024-abc123
 # See document ID: a1b2c3d4e5f6
-dutch-tax-agent remove -t tax2024-abc123 --doc-id a1b2c3d4e5f6
+dutch-tax-agent remove -t tax2024-abc123 -d a1b2c3d4e5f6
 
 # Step 5: Ready to calculate
 dutch-tax-agent calculate -t tax2024-abc123
