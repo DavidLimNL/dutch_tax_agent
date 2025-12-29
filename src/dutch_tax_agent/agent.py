@@ -13,7 +13,8 @@ from dutch_tax_agent.checkpoint_utils import generate_thread_id, get_thread_stat
 from dutch_tax_agent.config import settings
 from dutch_tax_agent.document_manager import DocumentManager
 from dutch_tax_agent.graph import create_tax_graph
-from dutch_tax_agent.ingestion import CSVTransactionParser, PDFParser, PIIScrubber
+from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
+from dutch_tax_agent.ingestion.csv_parser import parse_csv
 from dutch_tax_agent.schemas.state import TaxGraphState, Replace
 from dutch_tax_agent.schemas.tax_entities import Box3Asset
 
@@ -93,7 +94,6 @@ class DutchTaxAgent:
         self.thread_id = thread_id or generate_thread_id(prefix=f"tax{tax_year}")
         self.pdf_parser = PDFParser()
         self.pii_scrubber = PIIScrubber()
-        self.csv_parser = CSVTransactionParser()
         self.graph = create_tax_graph()
         self.document_manager = DocumentManager()
 
@@ -234,8 +234,8 @@ class DutchTaxAgent:
                 
                 for csv_path in csv_files:
                     try:
-                        # Parse CSV
-                        csv_data = self.csv_parser.parse(csv_path, tax_year=self.tax_year)
+                        # Parse CSV (automatically detects format)
+                        csv_data = parse_csv(csv_path, tax_year=self.tax_year)
                         
                         # Generate hash
                         csv_hash = self.document_manager.hash_file(csv_path)
@@ -250,24 +250,32 @@ class DutchTaxAgent:
                         
                         # Create Box3Asset from CSV data
                         from datetime import date
-                        # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
-                        jan1 = csv_data["jan1_balance_eur"]
-                        dec31 = csv_data["dec31_balance_eur"]
+                        jan1 = csv_data.get("jan1_balance_eur")
+                        dec31 = csv_data.get("dec31_balance_eur")
                         deposits = csv_data["total_deposits_eur"]
                         withdrawals = csv_data["total_withdrawals_eur"]
-                        actual_return = (dec31 - jan1) - (deposits - withdrawals)
+                        
+                        # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+                        # Only calculate if both jan1 and dec31 are available
+                        actual_return = None
+                        if jan1 is not None and dec31 is not None:
+                            actual_return = (dec31 - jan1) - (deposits - withdrawals)
+                        
+                        # Get realized gains if available (investment fund format)
+                        realized_gains = csv_data.get("realized_gains_eur", 0.0)
                         
                         asset = Box3Asset(
                             source_doc_id=metadata["id"],
                             source_filename=csv_path.name,
                             source_page=None,
                             asset_type="savings",  # Default type
-                            value_eur_jan1=jan1,
+                            value_eur_jan1=jan1 if jan1 is not None else 0.0,  # Box3Asset requires a value, use 0.0 if unknown
                             value_eur_dec31=dec31,
                             deposits_eur=deposits,
                             withdrawals_eur=withdrawals,
+                            realized_gains_eur=realized_gains if realized_gains > 0 else None,
                             actual_return_eur=actual_return,
-                            original_value=jan1,
+                            original_value=jan1 if jan1 is not None else None,
                             original_currency=csv_data["currency"],
                             reference_date=date(self.tax_year, 1, 1),
                             description=f"CSV Transaction File: {csv_path.stem}",
@@ -278,12 +286,19 @@ class DutchTaxAgent:
                         csv_box3_items.append(asset)
                         
                         # Print CSV extraction summary
+                        summary_parts = []
+                        if jan1 is not None:
+                            summary_parts.append(f"Jan 1: €{jan1:,.2f}")
+                        if dec31 is not None:
+                            summary_parts.append(f"Dec 31: €{dec31:,.2f}")
+                        summary_parts.extend([
+                            f"Deposits: €{deposits:,.2f}",
+                            f"Withdrawals: €{withdrawals:,.2f}",
+                        ])
+                        if realized_gains > 0:
+                            summary_parts.append(f"Realized gains: €{realized_gains:,.2f}")
                         console.print(
-                            f"[green]✓[/green] {csv_path.name}: "
-                            f"Jan 1: €{csv_data['jan1_balance_eur']:,.2f}, "
-                            f"Dec 31: €{csv_data['dec31_balance_eur']:,.2f}, "
-                            f"Deposits: €{csv_data['total_deposits_eur']:,.2f}, "
-                            f"Withdrawals: €{csv_data['total_withdrawals_eur']:,.2f}"
+                            f"[green]✓[/green] {csv_path.name}: {', '.join(summary_parts)}"
                         )
                         
                         progress.advance(task)
