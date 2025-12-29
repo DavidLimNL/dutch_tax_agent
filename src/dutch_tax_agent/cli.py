@@ -7,10 +7,10 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 
 from dutch_tax_agent.agent import DutchTaxAgent
 from dutch_tax_agent.checkpoint_utils import list_all_threads, thread_exists
+from dutch_tax_agent.display_utils import print_box3_assets_table
 from dutch_tax_agent.graph import create_tax_graph
 
 app = typer.Typer(
@@ -118,59 +118,9 @@ def status(
         console.print(f"\n[bold cyan]Box 3: Assets[/bold cyan]")
         console.print(f"  Total: [green]€{status_info['box3_total']:,.2f}[/green]")
         
-        # Display Box 3 assets table (same format as aggregator)
+        # Display Box 3 assets table
         if status_info.get('box3_items'):
-            box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
-            box3_table.add_column("#", style="dim", justify="right")
-            box3_table.add_column("Description", style="cyan", no_wrap=False)
-            box3_table.add_column("Asset Type", style="green")
-            box3_table.add_column("Account Number", style="yellow")
-            box3_table.add_column("Source File", style="blue", no_wrap=False)
-            box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
-            box3_table.add_column("Dec 31 (€)", justify="right", style="bold")
-            box3_table.add_column("Deposits (€)", justify="right", style="dim")
-            box3_table.add_column("Withdrawals (€)", justify="right", style="dim")
-            box3_table.add_column("Direct Income (€)", justify="right", style="dim")
-            box3_table.add_column("Actual Return (€)", justify="right", style="bold")
-            box3_table.add_column("Notes", style="dim", no_wrap=False)
-            
-            for i, asset_data in enumerate(status_info['box3_items']):
-                account_num = asset_data["account_number"]
-                if account_num:
-                    account_num_text = Text(account_num, style="bold cyan")
-                else:
-                    account_num_text = ""
-                
-                # Format deposits and withdrawals, showing "unknown" if None
-                deposits = asset_data.get("deposits")
-                withdrawals = asset_data.get("withdrawals")
-                deposits_str = f"{deposits:,.2f}" if deposits is not None else "unknown"
-                withdrawals_str = f"{withdrawals:,.2f}" if withdrawals is not None else "unknown"
-                
-                # Format direct income (always 0.0 for now, but show as "unknown" if None)
-                direct_income = asset_data.get("direct_income")
-                direct_income_str = f"{direct_income:,.2f}" if direct_income is not None else "unknown"
-                
-                # Format actual return, showing "unknown" if None
-                actual_return = asset_data.get("actual_return")
-                actual_return_str = f"{actual_return:,.2f}" if actual_return is not None else "unknown"
-                
-                box3_table.add_row(
-                    str(i),
-                    asset_data["description"],
-                    asset_data["asset_type"],
-                    account_num_text,
-                    asset_data["source_filename"],
-                    f"{asset_data['jan1']:,.2f}",
-                    f"{asset_data['dec31']:,.2f}",
-                    deposits_str,
-                    withdrawals_str,
-                    direct_income_str,
-                    actual_return_str,
-                    "",  # Notes column - empty for now
-                )
-            
-            console.print(box3_table)
+            print_box3_assets_table(status_info['box3_items'])
         
         # Validation
         if status_info['validation_warnings']:
@@ -248,6 +198,10 @@ def remove(
         console.print(f"  Box 1 Total: €{status_info['box1_total']:,.2f}")
         console.print(f"  Box 3 Total: €{status_info['box3_total']:,.2f}")
         
+        # Display Box 3 assets table
+        if status_info.get('box3_items'):
+            print_box3_assets_table(status_info['box3_items'])
+        
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         raise typer.Exit(1)
@@ -280,20 +234,7 @@ def remove_asset(
         status_info = agent.get_status()
         
         if status_info.get('box3_items'):
-            box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
-            box3_table.add_column("#", style="dim", justify="right")
-            box3_table.add_column("Description", style="cyan", no_wrap=False)
-            box3_table.add_column("Asset Type", style="green")
-            box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
-            
-            for i, asset_data in enumerate(status_info['box3_items']):
-                box3_table.add_row(
-                    str(i),
-                    asset_data["description"],
-                    asset_data["asset_type"],
-                    f"{asset_data['jan1']:,.2f}",
-                )
-            console.print(box3_table)
+            print_box3_assets_table(status_info['box3_items'])
             
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

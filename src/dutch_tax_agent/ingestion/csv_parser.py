@@ -156,6 +156,7 @@ class CSVTransactionParser:
                 # Calculate total deposits and withdrawals
                 total_deposits = 0.0
                 total_withdrawals = 0.0
+                total_fees = 0.0
                 
                 for row in rows:
                     try:
@@ -164,6 +165,16 @@ class CSVTransactionParser:
                             total_deposits += amount
                         else:
                             total_withdrawals += abs(amount)  # Store as positive
+                        
+                        # Parse and accumulate fees (treat as withdrawals)
+                        fee_str = row.get("Fee", "").strip()
+                        if fee_str:
+                            try:
+                                fee = float(fee_str.replace(",", ""))
+                                if fee > 0:  # Only add positive fees
+                                    total_fees += fee
+                            except ValueError:
+                                logger.warning(f"Skipping row with invalid fee value: {fee_str}")
                     except (ValueError, KeyError) as e:
                         logger.warning(f"Skipping row with invalid amount: {e}")
                         continue
@@ -200,6 +211,15 @@ class CSVTransactionParser:
                     to_currency="EUR",
                     reference_date=reference_date
                 )
+                
+                # Convert fees to EUR and add to withdrawals
+                total_fees_eur = self.currency_converter.convert(
+                    total_fees,
+                    from_currency=currency,
+                    to_currency="EUR",
+                    reference_date=reference_date
+                )
+                total_withdrawals_eur += total_fees_eur
                 
                 logger.info(
                     f"Successfully parsed {csv_path.name}: "

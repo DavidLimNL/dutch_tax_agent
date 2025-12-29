@@ -5,8 +5,6 @@ from collections import defaultdict
 from datetime import date, datetime
 
 from rich.console import Console
-from rich.table import Table
-from rich.text import Text
 
 from dutch_tax_agent.schemas.state import TaxGraphState
 from dutch_tax_agent.schemas.tax_entities import Box1Income, Box3Asset
@@ -553,33 +551,8 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
 
     # Display assets in a table format
     if asset_table_data:
-        table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
-        table.add_column("Description", style="cyan", no_wrap=False)
-        table.add_column("Asset Type", style="green")
-        table.add_column("Account Number", style="yellow")
-        table.add_column("Source File", style="blue", no_wrap=False)
-        table.add_column("Jan 1 (€)", justify="right", style="bold")
-        table.add_column("Dec 31 (€)", justify="right", style="bold")
-        table.add_column("Notes", style="dim", no_wrap=False)
-        
-        for asset_data in asset_table_data:
-            account_num = asset_data["account_number"]
-            if account_num:
-                account_num_text = Text(account_num, style="bold cyan")
-            else:
-                account_num_text = ""
-            
-            table.add_row(
-                asset_data["description"],
-                asset_data["asset_type"],
-                account_num_text,
-                asset_data["source_filename"],
-                f"{asset_data['jan1']:,.2f}",
-                f"{asset_data['dec31']:,.2f}",
-                asset_data["notes"] if asset_data["notes"] else "",
-            )
-        
-        console.print(table)
+        from dutch_tax_agent.display_utils import print_box3_assets_table
+        print_box3_assets_table(asset_table_data)
 
     # Clear document text after aggregation to reduce token usage and memory
     # The full document text is no longer needed since we have structured extraction results

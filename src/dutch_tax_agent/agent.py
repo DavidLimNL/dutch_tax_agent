@@ -724,7 +724,7 @@ class DutchTaxAgent:
                 "dec31": asset.value_eur_dec31 or 0.0,
                 "deposits": asset.deposits_eur,
                 "withdrawals": asset.withdrawals_eur,
-                "direct_income": asset.realized_gains_eur or 0.0,  # Using realized_gains_eur as direct income placeholder
+                "direct_income": asset.realized_gains_eur,  # Using realized_gains_eur as direct income placeholder (preserve None for "unknown")
                 "actual_return": asset.actual_return_eur,
             })
         
@@ -769,62 +769,10 @@ class DutchTaxAgent:
         console.print(f"Total: [green]€{state.box3_total_assets_jan1:,.2f}[/green]")
         console.print(f"Items: {len(state.box3_asset_items)}")
         
-        # Display Box 3 assets table (same format as status command)
+        # Display Box 3 assets table
         if state.box3_asset_items:
-            from rich.table import Table
-            from rich.text import Text
-            
-            box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
-            box3_table.add_column("#", style="dim", justify="right")
-            box3_table.add_column("Description", style="cyan", no_wrap=False)
-            box3_table.add_column("Asset Type", style="green")
-            box3_table.add_column("Account Number", style="yellow")
-            box3_table.add_column("Source File", style="blue", no_wrap=False)
-            box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
-            box3_table.add_column("Dec 31 (€)", justify="right", style="bold")
-            box3_table.add_column("Deposits (€)", justify="right", style="dim")
-            box3_table.add_column("Withdrawals (€)", justify="right", style="dim")
-            box3_table.add_column("Direct Income (€)", justify="right", style="dim")
-            box3_table.add_column("Actual Return (€)", justify="right", style="bold")
-            box3_table.add_column("Notes", style="dim", no_wrap=False)
-            
-            for i, asset in enumerate(state.box3_asset_items):
-                account_num = asset.account_number
-                if account_num:
-                    account_num_text = Text(account_num, style="bold cyan")
-                else:
-                    account_num_text = ""
-                
-                # Format deposits and withdrawals, showing "unknown" if None
-                deposits = asset.deposits_eur
-                withdrawals = asset.withdrawals_eur
-                deposits_str = f"{deposits:,.2f}" if deposits is not None else "unknown"
-                withdrawals_str = f"{withdrawals:,.2f}" if withdrawals is not None else "unknown"
-                
-                # Format direct income (using realized_gains_eur as placeholder)
-                direct_income = asset.realized_gains_eur
-                direct_income_str = f"{direct_income:,.2f}" if direct_income is not None else "unknown"
-                
-                # Format actual return, showing "unknown" if None
-                actual_return = asset.actual_return_eur
-                actual_return_str = f"{actual_return:,.2f}" if actual_return is not None else "unknown"
-                
-                box3_table.add_row(
-                    str(i),
-                    asset.description or "Unknown",
-                    asset.asset_type,
-                    account_num_text,
-                    asset.source_filename,
-                    f"{asset.value_eur_jan1:,.2f}",
-                    f"{asset.value_eur_dec31 or 0.0:,.2f}",
-                    deposits_str,
-                    withdrawals_str,
-                    direct_income_str,
-                    actual_return_str,
-                    "",  # Notes column - empty for now
-                )
-            
-            console.print(box3_table)
+            from dutch_tax_agent.display_utils import print_box3_assets_table
+            print_box3_assets_table(state.box3_asset_items)
 
         if state.validation_warnings:
             console.print(f"\n[yellow]⚠️  Warnings ({len(state.validation_warnings)}):[/yellow]")
