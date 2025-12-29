@@ -31,6 +31,7 @@ class DocumentClassification(BaseModel):
         "crypto_broker_statement",
         "salary_statement",
         "mortgage_statement",
+        "revolut_statement",
         "unknown",
     ]
     confidence: float = Field(ge=0.0, le=1.0, description="Classification confidence")

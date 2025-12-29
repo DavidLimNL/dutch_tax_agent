@@ -14,6 +14,7 @@ from dutch_tax_agent.config import settings
 from dutch_tax_agent.graph.agents import (
     dutch_parser_agent,
     investment_broker_parser_agent,
+    revolut_parser_agent,
     salary_parser_agent,
 )
 from dutch_tax_agent.graph.nodes import (
@@ -142,6 +143,7 @@ def create_tax_graph() -> StateGraph:
     # Parser agents (called via Send from dispatcher's Command)
     graph.add_node("dutch_parser", dutch_parser_agent)
     graph.add_node("investment_broker_parser", investment_broker_parser_agent)
+    graph.add_node("revolut_parser", revolut_parser_agent)
     graph.add_node("salary_parser", salary_parser_agent)
     
     # Validator (processes results from parsers)
@@ -170,6 +172,7 @@ def create_tax_graph() -> StateGraph:
     # Parser agents output goes to validator
     graph.add_edge("dutch_parser", "validator")
     graph.add_edge("investment_broker_parser", "validator")
+    graph.add_edge("revolut_parser", "validator")
     graph.add_edge("salary_parser", "validator")
     
     # Validator results go to aggregator

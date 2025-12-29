@@ -38,6 +38,7 @@ First, classify into ONE of these categories:
 - crypto_broker_statement: Crypto exchange/broker statement (Coinbase, Binance, Kraken, etc.)
 - salary_statement: Salary slip or income statement
 - mortgage_statement: Mortgage or property-related document
+- revolut_statement: Revolut statement (look for: "Flexible Cash Funds Statement" header, "Period" with date range, "Opening Balance", "Closing Balance", "Total Value purchased", "Total Value sold", "Total Earned Return", "Total Fees", "Account Number" field, and structured format with share prices/shares). These may not all be present.
 - unknown: Cannot determine type
 
 Second, extract the tax year from the document. Look for:
@@ -85,6 +86,7 @@ Example: dutch_bank_statement,0.95,2024,null
 Example: us_broker_statement,0.90,2024,dec_period
 Example: us_broker_statement,0.90,2024,dec_prev_year
 Example: crypto_broker_statement,0.85,2024,jan_period
+Example: revolut_statement,0.95,2024,null
 Example if year unclear: us_broker_statement,0.90,null,full_year
 """
 
@@ -276,10 +278,21 @@ def dispatcher_node(state: TaxGraphState) -> Command:
             target_node = "salary_parser"
         elif classification.doc_type == "mortgage_statement":
             target_node = "dutch_parser"  # Handle with Dutch parser
+        elif classification.doc_type == "revolut_statement":
+            target_node = "revolut_parser"
         else:
             # Unknown documents skip parsing
             logger.warning(f"Unknown document type for {doc.doc_id}, skipping")
             continue
+
+        # For Revolut statements, truncate text to first 1000 characters to save LLM credits
+        doc_text_to_send = doc.scrubbed_text
+        if classification.doc_type == "revolut_statement":
+            doc_text_to_send = doc.scrubbed_text[:1000]
+            logger.info(
+                f"Truncated Revolut statement {doc.doc_id} ({doc.filename}) "
+                f"to 1000 chars for parser (original length: {len(doc.scrubbed_text)})"
+            )
 
         # Store classification info
         classified_docs.append({
@@ -296,7 +309,7 @@ def dispatcher_node(state: TaxGraphState) -> Command:
                 target_node,
                 {
                     "doc_id": doc.doc_id,
-                    "doc_text": doc.scrubbed_text,
+                    "doc_text": doc_text_to_send,
                     "filename": doc.filename,
                     "classification": classification.model_dump(),
                 },
