@@ -116,45 +116,44 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 
 #### Revolut Statement Processing
 
-Revolut statements are processed differently from broker statements. The agent supports **Flexible Cash Funds Statements** from Revolut, which can be provided in two ways:
+Revolut statements are processed differently depending on the account type:
 
-1. **PDF Statement Only**: The PDF statement provides:
-   - Opening balance (Jan 1 value)
-   - Closing balance (Dec 31 value)
-   - Statement period (date range)
-   - Currency
+**Revolut Savings Accounts (Flexible Cash Funds):**
+- **PDF + CSV Transaction File** (Required for complete tax calculation):
+  - **PDF Statement**: Provides Jan 1 and Dec 31 balances from the Flexible Cash Funds Statement
+  - **CSV Transaction File**: Provides deposits, withdrawals, gains, and losses for actual return calculation
+  - Files are matched by name (case-insensitive, without extension)
+  - Example: `rev_savings_eur.pdf` and `rev_savings_eur.csv` will be automatically merged
+  - The merged asset will have:
+    - Jan 1 value from PDF
+    - Dec 31 value from PDF
+    - Deposits, withdrawals, gains, losses from CSV
+    - **Actual return calculated automatically** when all values are available
+  - Processing order doesn't matter: PDF first then CSV, or CSV first then PDF
+  - Both files must be in the same directory or processed in the same session
 
-2. **PDF + CSV Transaction File** (Recommended): For complete tax calculation, provide both:
-   - **PDF Statement**: Provides Jan 1 and Dec 31 balances
-   - **CSV Transaction File**: Provides deposits, withdrawals, gains, and losses for actual return calculation
-
-**Matching Files for Merging:**
-- Files are matched by name (case-insensitive, without extension)
-- Example: `rev_savings_eur.pdf` and `rev_savings_eur.csv` will be automatically merged
-- The merged asset will have:
-  - Jan 1 value from PDF
-  - Dec 31 value from PDF
-  - Deposits, withdrawals, gains, losses from CSV
-  - **Actual return calculated automatically** when all values are available
-
-**Processing Order:**
-- You can process PDF and CSV files in any order (PDF first, then CSV, or vice versa)
-- The system automatically merges them during incremental ingestion
-- Both files must be in the same directory or processed in the same session
+**Revolut Current Accounts:**
+- **CSV Transaction File Only** (PDF not needed):
+  - Current account CSVs already contain balance information after every transaction
+  - The CSV file provides all necessary data: Jan 1 balance, Dec 31 balance, deposits, withdrawals
+  - No PDF merging required - process the CSV file standalone
 
 **Example:**
 ```bash
 # Directory structure
 sample_docs/
-├── rev_savings_eur.pdf    # Revolut statement PDF
-└── rev_savings_eur.csv    # Transaction history CSV
+├── rev_savings_eur.pdf    # Revolut Savings PDF (Flexible Cash Funds Statement)
+├── rev_savings_eur.csv    # Revolut Savings CSV (transaction history - merges with PDF)
+└── rev_current_eur.csv    # Revolut Current Account CSV (standalone, no PDF needed)
 
-# Process both files (order doesn't matter)
+# Process all files
 uv run dutch-tax-agent ingest -i ./sample_docs -y 2024
-# Result: Single merged Box 3 asset with all values
+# Result: 
+# - rev_savings_eur.pdf + rev_savings_eur.csv → Single merged Box 3 asset
+# - rev_current_eur.csv → Standalone Box 3 asset
 ```
 
-**Note:** Only the first 1000 characters of the PDF are sent to the parser to save LLM credits, as Revolut statements typically have key information (period, balances) in the header section.
+**Note:** Only the first 1000 characters of Revolut Savings PDFs are sent to the parser to save LLM credits, as these statements typically have key information (period, balances) in the header section.
 
 #### CSV Transaction File Format
 
@@ -184,10 +183,11 @@ Transfer,Deposit,2024-01-19 17:46:53,2024-01-19 17:46:53,Example transaction des
 Each CSV file is processed as a separate Box 3 asset and appears in the asset table with the filename as the account identifier.
 
 **CSV Files for Revolut:**
-- CSV files matching a Revolut PDF filename (e.g., `rev_savings_eur.csv` with `rev_savings_eur.pdf`) will be automatically merged with the PDF
-- The CSV provides transaction details (deposits, withdrawals, gains, losses)
-- The PDF provides balance snapshots (Jan 1, Dec 31)
-- When merged, the actual return is calculated automatically
+- **Savings Accounts**: CSV files matching a Revolut Savings PDF filename (e.g., `rev_savings_eur.csv` with `rev_savings_eur.pdf`) will be automatically merged with the PDF
+  - The CSV provides transaction details (deposits, withdrawals, gains, losses)
+  - The PDF provides balance snapshots (Jan 1, Dec 31)
+  - When merged, the actual return is calculated automatically
+- **Current Accounts**: Current account CSVs are processed standalone (no PDF needed) as they already contain balance information
 
 ### Run the Agent
 

@@ -98,15 +98,20 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 
 ### Revolut Statement Processing
 
-For Revolut Flexible Cash Funds statements, you can provide:
-- **PDF Statement**: Contains opening/closing balances and period information
-- **CSV Transaction File** (optional): Contains transaction details for actual return calculation
+Revolut statements are processed differently depending on account type:
 
-Files are automatically matched by name (case-insensitive). For example:
-- `rev_savings_eur.pdf` + `rev_savings_eur.csv` → Merged into single asset
-- The PDF provides Jan 1 and Dec 31 balances
-- The CSV provides deposits, withdrawals, gains, and losses
-- Actual return is calculated automatically when both files are present
+**Revolut Savings Accounts (Flexible Cash Funds):**
+- **PDF + CSV Transaction File** (both required):
+  - PDF provides Jan 1 and Dec 31 balances
+  - CSV provides deposits, withdrawals, gains, and losses
+  - Files are automatically matched by name (case-insensitive)
+  - Example: `rev_savings_eur.pdf` + `rev_savings_eur.csv` → Merged into single asset
+  - Actual return is calculated automatically when both files are present
+
+**Revolut Current Accounts:**
+- **CSV Transaction File Only** (PDF not needed):
+  - Current account CSVs already contain balance information
+  - Process the CSV file standalone - no PDF merging required
 
 See the main [README.md](../README.md) for detailed information about Revolut statement processing.
 

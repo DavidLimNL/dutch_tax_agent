@@ -194,7 +194,11 @@ uv run dutch-tax-agent ingest -i ~/docs -t tax2024-abc123
 
 ## Revolut PDF/CSV Merging
 
-When processing Revolut statements, PDF and CSV files are automatically merged if they share the same base filename (case-insensitive, without extension):
+**Important:** Only Revolut Savings accounts (Flexible Cash Funds) require PDF+CSV merging. Revolut current account CSVs are processed standalone as they already contain balance information.
+
+### Revolut Savings Accounts
+
+When processing Revolut Savings statements, PDF and CSV files are automatically merged if they share the same base filename (case-insensitive, without extension):
 
 **Example:**
 ```bash
@@ -216,6 +220,13 @@ uv run dutch-tax-agent ingest -i ~/docs -t tax2024-abc123
 - CSV provides: Deposits, withdrawals, gains, losses
 - When merged: Actual return is calculated as `(Dec 31 - Jan 1) - (Deposits - Withdrawals)`
 - Processing order doesn't matter: CSV first then PDF, or PDF first then CSV
+
+### Revolut Current Accounts
+
+Current account CSVs are processed standalone - no PDF merging is needed or performed:
+- Current account CSVs already contain balance information after every transaction
+- The CSV provides all necessary data: Jan 1 balance, Dec 31 balance, deposits, withdrawals
+- Process the CSV file directly without a matching PDF
 
 ## Verification
 
