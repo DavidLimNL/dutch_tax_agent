@@ -102,6 +102,10 @@ class Box3Asset(BaseModel):
         None,
         description="Money withdrawn/removed from this asset during the tax year",
     )
+    actual_return_eur: Optional[float] = Field(
+        None,
+        description="Actual return calculated as (End Value - Start Value) - (Deposits - Withdrawals)",
+    )
     
     # Original values
     original_value: Optional[float] = None

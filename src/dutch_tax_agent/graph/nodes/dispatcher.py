@@ -202,7 +202,7 @@ def dispatcher_node(state: TaxGraphState) -> Command:
         logger.warning("No documents to dispatch. Check if PII scrubbing succeeded.")
         # Return Command with just state update, no routing (will end)
         return Command(
-            update={"status": "no_documents"}
+            update={"status": "awaiting_human"}
         )
 
     classified_docs = []

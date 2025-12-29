@@ -192,6 +192,12 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 )
                 # Create a new asset with Jan 1 set to 0.0 and reference_date set to tax year's Jan 1
                 tax_year = state.tax_year
+                dec31 = asset.value_eur_dec31 or 0.0
+                deposits = asset.deposits_eur or 0.0
+                withdrawals = asset.withdrawals_eur or 0.0
+                # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+                actual_return = (dec31 - 0.0) - (deposits - withdrawals) if asset.value_eur_dec31 is not None else None
+                
                 asset = Box3Asset(
                     source_doc_id=asset.source_doc_id,
                     source_filename=asset.source_filename,
@@ -199,6 +205,9 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     asset_type=asset.asset_type,
                     value_eur_jan1=0.0,
                     value_eur_dec31=asset.value_eur_dec31,
+                    deposits_eur=asset.deposits_eur,
+                    withdrawals_eur=asset.withdrawals_eur,
+                    actual_return_eur=actual_return,
                     realized_gains_eur=asset.realized_gains_eur,
                     realized_losses_eur=asset.realized_losses_eur,
                     original_value=asset.original_value,
@@ -226,6 +235,12 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     f"{f', doc ends {doc_end}' if doc_end else ''}"
                 )
                 # Create a new asset with Dec 31 set to 0.0
+                jan1 = asset.value_eur_jan1
+                deposits = asset.deposits_eur or 0.0
+                withdrawals = asset.withdrawals_eur or 0.0
+                # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+                actual_return = (0.0 - jan1) - (deposits - withdrawals)
+                
                 asset = Box3Asset(
                     source_doc_id=asset.source_doc_id,
                     source_filename=asset.source_filename,
@@ -233,6 +248,9 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     asset_type=asset.asset_type,
                     value_eur_jan1=asset.value_eur_jan1,
                     value_eur_dec31=0.0,
+                    deposits_eur=asset.deposits_eur,
+                    withdrawals_eur=asset.withdrawals_eur,
+                    actual_return_eur=actual_return,
                     realized_gains_eur=asset.realized_gains_eur,
                     realized_losses_eur=asset.realized_losses_eur,
                     original_value=asset.original_value,
@@ -433,6 +451,13 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             # Use Jan 1 of tax year as the reference_date for merged assets
             merged_reference_date = date(tax_year, 1, 1)
             
+            # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+            merged_deposits = sum(a.deposits_eur or 0.0 for a in assets)
+            merged_withdrawals = sum(a.withdrawals_eur or 0.0 for a in assets)
+            actual_return = None
+            if merged_dec31 is not None:
+                actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
+            
             merged_asset = Box3Asset(
                 source_doc_id=base_asset.source_doc_id,  # Use first doc_id as primary
                 source_filename=", ".join(set(all_source_filenames)),  # Combine filenames
@@ -440,6 +465,9 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 asset_type=base_asset.asset_type,
                 value_eur_jan1=merged_jan1,
                 value_eur_dec31=merged_dec31,
+                deposits_eur=merged_deposits if merged_deposits > 0 else None,
+                withdrawals_eur=merged_withdrawals if merged_withdrawals > 0 else None,
+                actual_return_eur=actual_return,
                 realized_gains_eur=total_gains if total_gains > 0 else None,
                 realized_losses_eur=total_losses if total_losses > 0 else None,
                 original_value=base_asset.original_value,

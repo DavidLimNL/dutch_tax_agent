@@ -86,13 +86,14 @@ cp .env.example .env
 
 ### Preparing Documents
 
-Place your PDF tax documents in a directory (e.g., `./sample_docs`). The agent supports:
+Place your PDF tax documents and CSV transaction files in a directory (e.g., `./sample_docs`). The agent supports:
 
 - **Dutch Bank Statements**: ING, ABN AMRO, Rabobank, etc.
 - **US Brokerage Statements**: Interactive Brokers, Charles Schwab, etc.
 - **Crypto Exchange Statements**: Coinbase, Binance, Kraken, etc.
 - **Salary Statements**: Dutch payslips (salarisstroken)
 - **Mortgage Statements**: Property-related documents
+- **CSV Transaction Files**: Transaction history files with specific format (see below)
 
 #### Broker Statement Requirements
 
@@ -107,6 +108,33 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 **Example for tax year 2024:**
 - Option 1: `broker_statement_2024.pdf` (full year)
 - Option 2: `broker_statement_dec2023.pdf` + `broker_statement_dec2024.pdf` (monthly)
+
+#### CSV Transaction File Format
+
+The agent supports CSV transaction files for deterministic processing (no LLM required). CSV files must follow this exact format:
+
+```csv
+Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+Transfer,Deposit,2024-01-15 15:32:49,2024-01-15 15:32:49,Savings Vault topup,22000.00,0.00,EUR,COMPLETED,22000.00
+Transfer,Deposit,2024-01-19 17:46:53,2024-01-19 17:46:53,Savings Vault topup,27210.54,0.00,EUR,COMPLETED,27210.54
+...
+```
+
+**Requirements:**
+- Must include all required columns: `Type`, `Product`, `Started Date`, `Completed Date`, `Description`, `Amount`, `Fee`, `Currency`, `State`, `Balance`
+- Transactions must be sorted by `Completed Date` (or will be automatically sorted)
+- Must contain transactions for the specified tax year
+- The file will be processed as a single Box 3 asset
+- Account number will be set to the filename (without extension)
+- All amounts are automatically converted to EUR using exchange rates
+
+**Extracted Data:**
+- **Jan 1 Balance**: Balance before the first transaction (calculated as first transaction balance - first transaction amount)
+- **Dec 31 Balance**: Balance after the last transaction
+- **Total Deposits**: Sum of all positive amounts
+- **Total Withdrawals**: Sum of all negative amounts (stored as positive)
+
+Each CSV file is processed as a separate Box 3 asset and appears in the asset table with the filename as the account identifier.
 
 ### Run the Agent
 
@@ -225,6 +253,7 @@ dutch_tax_agent/
 │       │   └── tax_entities.py        # Tax-specific models
 │       ├── ingestion/                 # Phase 1: Safe Zone
 │       │   ├── pdf_parser.py          # PDFPlumber logic
+│       │   ├── csv_parser.py          # CSV transaction file parser
 │       │   ├── pii_scrubber.py        # Presidio + custom recognizers
 │       │   └── recognizers/           # Custom PII recognizers
 │       │       ├── bsn_recognizer.py  # 11-proef implementation

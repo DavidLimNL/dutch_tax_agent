@@ -254,6 +254,16 @@ class DataValidator:
                 from datetime import datetime
                 reference_date = datetime.fromisoformat(reference_date).date()
 
+            # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+            deposits = data.get("deposits_eur")
+            withdrawals = data.get("withdrawals_eur")
+            actual_return = None
+            if value_eur_dec31 is not None:
+                jan1_val = value_eur_jan1 or 0.0
+                deposits_val = deposits or 0.0
+                withdrawals_val = withdrawals or 0.0
+                actual_return = (value_eur_dec31 - jan1_val) - (deposits_val - withdrawals_val)
+            
             return Box3Asset(
                 source_doc_id=source_doc_id,
                 source_filename=source_filename,
@@ -261,6 +271,9 @@ class DataValidator:
                 asset_type=data.get("asset_type", "savings"),
                 value_eur_jan1=value_eur_jan1 or 0.0,  # Box3Asset requires non-null, use 0.0 if None
                 value_eur_dec31=value_eur_dec31,
+                deposits_eur=deposits,
+                withdrawals_eur=withdrawals,
+                actual_return_eur=actual_return,
                 realized_gains_eur=realized_gains,
                 realized_losses_eur=realized_losses,
                 original_value=original_value,

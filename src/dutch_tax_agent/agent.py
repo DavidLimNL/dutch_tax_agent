@@ -13,8 +13,9 @@ from dutch_tax_agent.checkpoint_utils import generate_thread_id, get_thread_stat
 from dutch_tax_agent.config import settings
 from dutch_tax_agent.document_manager import DocumentManager
 from dutch_tax_agent.graph import create_tax_graph
-from dutch_tax_agent.ingestion import PDFParser, PIIScrubber
+from dutch_tax_agent.ingestion import CSVTransactionParser, PDFParser, PIIScrubber
 from dutch_tax_agent.schemas.state import TaxGraphState, Replace
+from dutch_tax_agent.schemas.tax_entities import Box3Asset
 
 # Suppress all Presidio logging BEFORE basicConfig to prevent any output
 # Use NullHandler to completely silence Presidio loggers
@@ -92,6 +93,7 @@ class DutchTaxAgent:
         self.thread_id = thread_id or generate_thread_id(prefix=f"tax{tax_year}")
         self.pdf_parser = PDFParser()
         self.pii_scrubber = PIIScrubber()
+        self.csv_parser = CSVTransactionParser()
         self.graph = create_tax_graph()
         self.document_manager = DocumentManager()
 
@@ -103,18 +105,23 @@ class DutchTaxAgent:
     def ingest_documents(
         self, 
         pdf_paths: list[Path],
+        csv_files: Optional[list[Path]] = None,
         is_initial: bool = False
     ) -> TaxGraphState:
         """Ingest documents (initial or incremental).
         
         Args:
             pdf_paths: List of paths to PDF files
+            csv_files: Optional list of paths to CSV transaction files
             is_initial: If True, creates new thread. If False, adds to existing thread.
             
         Returns:
             TaxGraphState after ingestion (paused at HITL control)
         """
         console.print(f"\n[bold blue]🇳🇱 Dutch Tax Agent - Tax Year {self.tax_year}[/bold blue]\n")
+
+        # Initialize csv_files if not provided
+        csv_files = csv_files or []
 
         # Get existing state if resuming
         if not is_initial:
@@ -131,11 +138,18 @@ class DutchTaxAgent:
                 state.processed_documents
             )
             
-            if not pdf_paths:
+            # Find new CSV files (skip already processed)
+            csv_files = self.document_manager.find_new_documents(
+                csv_files,
+                state.processed_documents
+            )
+            
+            if not pdf_paths and not csv_files:
                 console.print("[yellow]⚠️  No new documents found[/yellow]")
                 return state
 
-        console.print(f"[bold]Processing {len(pdf_paths)} document(s)[/bold]\n")
+        total_files = len(pdf_paths) + len(csv_files)
+        console.print(f"[bold]Processing {len(pdf_paths)} PDF(s) and {len(csv_files)} CSV(s)[/bold]\n")
 
         # Phase 1: Ingestion (Safe Zone)
         console.print("[bold]Phase 1: Document Ingestion & PII Scrubbing[/bold]")
@@ -205,6 +219,105 @@ class DutchTaxAgent:
         # logger.info(f"Scrubbed DOCS: {scrubbed_docs[0]}")
         # return
 
+        # Process CSV files (deterministic, no LLM)
+        csv_box3_items = []
+        csv_metadata = []
+        
+        if csv_files:
+            console.print("\n[bold]Processing CSV Transaction Files[/bold]")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Parsing CSV files...", total=len(csv_files))
+                
+                for csv_path in csv_files:
+                    try:
+                        # Parse CSV
+                        csv_data = self.csv_parser.parse(csv_path, tax_year=self.tax_year)
+                        
+                        # Generate hash
+                        csv_hash = self.document_manager.hash_file(csv_path)
+                        
+                        # Create metadata
+                        metadata = self.document_manager.create_document_metadata(
+                            filename=csv_path.name,
+                            doc_hash=csv_hash,
+                            page_count=0  # CSVs don't have pages
+                        )
+                        csv_metadata.append(metadata)
+                        
+                        # Create Box3Asset from CSV data
+                        from datetime import date
+                        # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+                        jan1 = csv_data["jan1_balance_eur"]
+                        dec31 = csv_data["dec31_balance_eur"]
+                        deposits = csv_data["total_deposits_eur"]
+                        withdrawals = csv_data["total_withdrawals_eur"]
+                        actual_return = (dec31 - jan1) - (deposits - withdrawals)
+                        
+                        asset = Box3Asset(
+                            source_doc_id=metadata["id"],
+                            source_filename=csv_path.name,
+                            source_page=None,
+                            asset_type="savings",  # Default type
+                            value_eur_jan1=jan1,
+                            value_eur_dec31=dec31,
+                            deposits_eur=deposits,
+                            withdrawals_eur=withdrawals,
+                            actual_return_eur=actual_return,
+                            original_value=jan1,
+                            original_currency=csv_data["currency"],
+                            reference_date=date(self.tax_year, 1, 1),
+                            description=f"CSV Transaction File: {csv_path.stem}",
+                            account_number=csv_path.stem,  # Use filename as account number
+                            extraction_confidence=1.0,  # Deterministic parsing
+                            original_text_snippet=None,
+                        )
+                        csv_box3_items.append(asset)
+                        
+                        # Print CSV extraction summary
+                        console.print(
+                            f"[green]✓[/green] {csv_path.name}: "
+                            f"Jan 1: €{csv_data['jan1_balance_eur']:,.2f}, "
+                            f"Dec 31: €{csv_data['dec31_balance_eur']:,.2f}, "
+                            f"Deposits: €{csv_data['total_deposits_eur']:,.2f}, "
+                            f"Withdrawals: €{csv_data['total_withdrawals_eur']:,.2f}"
+                        )
+                        
+                        progress.advance(task)
+                    except Exception as e:
+                        console.print(f"[red]❌ Failed to parse {csv_path.name}: {e}[/red]")
+                        logger.exception(f"CSV parsing error for {csv_path.name}")
+                        # Continue processing other CSV files even if one fails
+                        continue
+                
+                if csv_box3_items:
+                    console.print(f"[green]✓[/green] Processed {len(csv_box3_items)} CSV file(s)")
+                elif csv_files:
+                    console.print(f"[yellow]⚠️[/yellow] No CSV files were successfully processed")
+
+        # Check if we have any documents to process
+        if not scrubbed_docs and not csv_box3_items:
+            console.print("\n[yellow]⚠️[/yellow] No documents or CSV files were successfully processed")
+            console.print("[dim]Please check your input files and try again[/dim]")
+            # Create a minimal state to avoid errors
+            if is_initial:
+                initial_state = TaxGraphState(
+                    tax_year=self.tax_year,
+                    session_id=self.thread_id,
+                    next_action="await_human",
+                    processed_documents=doc_metadata + csv_metadata,
+                    processing_started_at=datetime.now(timezone.utc).isoformat(),
+                )
+                config = {"configurable": {"thread_id": self.thread_id}}
+                self.graph.invoke(initial_state, config=config)
+                return initial_state
+            else:
+                state = get_thread_state(self.graph.checkpointer, self.thread_id)
+                return state
+
         # Phase 2: LangGraph Processing
         console.print("\n[bold]Phase 2: LangGraph Extraction & Validation[/bold]")
 
@@ -223,14 +336,16 @@ class DutchTaxAgent:
 
         # Build or update state
         if is_initial:
-            # Create initial state
+            # Create initial state with CSV Box3 items already included
             initial_state = TaxGraphState(
                 documents=scrubbed_docs,
                 tax_year=self.tax_year,
                 fiscal_partner=fiscal_partner,
                 session_id=self.thread_id,
                 next_action="await_human",
-                processed_documents=doc_metadata,
+                processed_documents=doc_metadata + csv_metadata,
+                box3_asset_items=csv_box3_items,
+                box3_total_assets_jan1=sum(item.value_eur_jan1 for item in csv_box3_items),
                 processing_started_at=datetime.now(timezone.utc).isoformat(),
             )
             
@@ -266,9 +381,15 @@ class DutchTaxAgent:
                 self.thread_id
             )
             
+            # Add CSV Box3 items to existing items
+            updated_box3_items = list(state.box3_asset_items) + csv_box3_items
+            updated_box3_total = sum(item.value_eur_jan1 for item in updated_box3_items)
+            
             updates = {
                 "documents": scrubbed_docs,
-                "processed_documents": state.processed_documents + doc_metadata,
+                "processed_documents": state.processed_documents + doc_metadata + csv_metadata,
+                "box3_asset_items": Replace(updated_box3_items),
+                "box3_total_assets_jan1": updated_box3_total,
                 "next_action": "ingest_more",
                 "classified_documents": [],  # Clear old classifications to ensure new documents are processed
             }
@@ -601,6 +722,10 @@ class DutchTaxAgent:
                 "source_filename": asset.source_filename,
                 "jan1": asset.value_eur_jan1,
                 "dec31": asset.value_eur_dec31 or 0.0,
+                "deposits": asset.deposits_eur,
+                "withdrawals": asset.withdrawals_eur,
+                "direct_income": asset.realized_gains_eur or 0.0,  # Using realized_gains_eur as direct income placeholder
+                "actual_return": asset.actual_return_eur,
             })
         
         return {
@@ -643,6 +768,63 @@ class DutchTaxAgent:
         console.print(f"\n[bold cyan]Box 3: Assets (Jan 1, {state.tax_year})[/bold cyan]")
         console.print(f"Total: [green]€{state.box3_total_assets_jan1:,.2f}[/green]")
         console.print(f"Items: {len(state.box3_asset_items)}")
+        
+        # Display Box 3 assets table (same format as status command)
+        if state.box3_asset_items:
+            from rich.table import Table
+            from rich.text import Text
+            
+            box3_table = Table(title="Box 3 Assets", show_header=True, header_style="bold magenta")
+            box3_table.add_column("#", style="dim", justify="right")
+            box3_table.add_column("Description", style="cyan", no_wrap=False)
+            box3_table.add_column("Asset Type", style="green")
+            box3_table.add_column("Account Number", style="yellow")
+            box3_table.add_column("Source File", style="blue", no_wrap=False)
+            box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
+            box3_table.add_column("Dec 31 (€)", justify="right", style="bold")
+            box3_table.add_column("Deposits (€)", justify="right", style="dim")
+            box3_table.add_column("Withdrawals (€)", justify="right", style="dim")
+            box3_table.add_column("Direct Income (€)", justify="right", style="dim")
+            box3_table.add_column("Actual Return (€)", justify="right", style="bold")
+            box3_table.add_column("Notes", style="dim", no_wrap=False)
+            
+            for i, asset in enumerate(state.box3_asset_items):
+                account_num = asset.account_number
+                if account_num:
+                    account_num_text = Text(account_num, style="bold cyan")
+                else:
+                    account_num_text = ""
+                
+                # Format deposits and withdrawals, showing "unknown" if None
+                deposits = asset.deposits_eur
+                withdrawals = asset.withdrawals_eur
+                deposits_str = f"{deposits:,.2f}" if deposits is not None else "unknown"
+                withdrawals_str = f"{withdrawals:,.2f}" if withdrawals is not None else "unknown"
+                
+                # Format direct income (using realized_gains_eur as placeholder)
+                direct_income = asset.realized_gains_eur
+                direct_income_str = f"{direct_income:,.2f}" if direct_income is not None else "unknown"
+                
+                # Format actual return, showing "unknown" if None
+                actual_return = asset.actual_return_eur
+                actual_return_str = f"{actual_return:,.2f}" if actual_return is not None else "unknown"
+                
+                box3_table.add_row(
+                    str(i),
+                    asset.description or "Unknown",
+                    asset.asset_type,
+                    account_num_text,
+                    asset.source_filename,
+                    f"{asset.value_eur_jan1:,.2f}",
+                    f"{asset.value_eur_dec31 or 0.0:,.2f}",
+                    deposits_str,
+                    withdrawals_str,
+                    direct_income_str,
+                    actual_return_str,
+                    "",  # Notes column - empty for now
+                )
+            
+            console.print(box3_table)
 
         if state.validation_warnings:
             console.print(f"\n[yellow]⚠️  Warnings ({len(state.validation_warnings)}):[/yellow]")

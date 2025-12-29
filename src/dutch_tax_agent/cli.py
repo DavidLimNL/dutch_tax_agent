@@ -37,14 +37,19 @@ def ingest(
         console.print(f"[red]Error: Directory not found: {input_dir}[/red]")
         raise typer.Exit(1)
 
-    # Find PDFs (case-insensitive: .pdf, .PDF, .Pdf, etc.)
+    # Find PDFs and CSVs (case-insensitive: .pdf, .PDF, .csv, .CSV, etc.)
     pdf_files = [
         f for f in input_dir.iterdir()
         if f.is_file() and f.suffix.lower() == ".pdf"
     ]
+    
+    csv_files = [
+        f for f in input_dir.iterdir()
+        if f.is_file() and f.suffix.lower() == ".csv"
+    ]
 
-    if not pdf_files:
-        console.print(f"[red]Error: No PDF files found in {input_dir}[/red]")
+    if not pdf_files and not csv_files:
+        console.print(f"[red]Error: No PDF or CSV files found in {input_dir}[/red]")
         raise typer.Exit(1)
 
     # Determine if this is initial or incremental ingestion
@@ -58,7 +63,7 @@ def ingest(
     )
 
     try:
-        state = agent.ingest_documents(pdf_files, is_initial=is_initial)
+        state = agent.ingest_documents(pdf_files, csv_files=csv_files, is_initial=is_initial)
         
         if is_initial:
             console.print(f"\n[green]✓[/green] Created thread: [bold]{agent.thread_id}[/bold]")
@@ -123,6 +128,10 @@ def status(
             box3_table.add_column("Source File", style="blue", no_wrap=False)
             box3_table.add_column("Jan 1 (€)", justify="right", style="bold")
             box3_table.add_column("Dec 31 (€)", justify="right", style="bold")
+            box3_table.add_column("Deposits (€)", justify="right", style="dim")
+            box3_table.add_column("Withdrawals (€)", justify="right", style="dim")
+            box3_table.add_column("Direct Income (€)", justify="right", style="dim")
+            box3_table.add_column("Actual Return (€)", justify="right", style="bold")
             box3_table.add_column("Notes", style="dim", no_wrap=False)
             
             for i, asset_data in enumerate(status_info['box3_items']):
@@ -132,6 +141,20 @@ def status(
                 else:
                     account_num_text = ""
                 
+                # Format deposits and withdrawals, showing "unknown" if None
+                deposits = asset_data.get("deposits")
+                withdrawals = asset_data.get("withdrawals")
+                deposits_str = f"{deposits:,.2f}" if deposits is not None else "unknown"
+                withdrawals_str = f"{withdrawals:,.2f}" if withdrawals is not None else "unknown"
+                
+                # Format direct income (always 0.0 for now, but show as "unknown" if None)
+                direct_income = asset_data.get("direct_income")
+                direct_income_str = f"{direct_income:,.2f}" if direct_income is not None else "unknown"
+                
+                # Format actual return, showing "unknown" if None
+                actual_return = asset_data.get("actual_return")
+                actual_return_str = f"{actual_return:,.2f}" if actual_return is not None else "unknown"
+                
                 box3_table.add_row(
                     str(i),
                     asset_data["description"],
@@ -140,6 +163,10 @@ def status(
                     asset_data["source_filename"],
                     f"{asset_data['jan1']:,.2f}",
                     f"{asset_data['dec31']:,.2f}",
+                    deposits_str,
+                    withdrawals_str,
+                    direct_income_str,
+                    actual_return_str,
                     "",  # Notes column - empty for now
                 )
             

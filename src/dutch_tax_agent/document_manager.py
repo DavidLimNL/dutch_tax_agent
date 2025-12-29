@@ -24,47 +24,58 @@ class DocumentManager:
         Returns:
             SHA256 hash as hex string
         """
+        return self.hash_file(pdf_path)
+    
+    def hash_file(self, file_path: Path) -> str:
+        """Generate SHA256 hash of a file (PDF or CSV).
+        
+        Args:
+            file_path: Path to file
+            
+        Returns:
+            SHA256 hash as hex string
+        """
         sha256_hash = hashlib.sha256()
         
-        with open(pdf_path, "rb") as f:
-            # Read file in chunks to handle large PDFs
+        with open(file_path, "rb") as f:
+            # Read file in chunks to handle large files
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
         
         return sha256_hash.hexdigest()
-    
+
     def find_new_documents(
         self, 
-        pdf_paths: list[Path], 
+        file_paths: list[Path], 
         processed_docs: list[dict]
     ) -> list[Path]:
         """Filter out already-processed documents based on hash and ID.
         
         Args:
-            pdf_paths: List of PDF file paths to check
+            file_paths: List of file paths to check (PDF or CSV)
             processed_docs: List of already processed document metadata
             
         Returns:
-            List of new (unprocessed) PDF paths
+            List of new (unprocessed) file paths
         """
         # Extract hashes and IDs of already processed documents
         processed_hashes = {doc["hash"] for doc in processed_docs}
         processed_ids = {doc["id"] for doc in processed_docs}
         
         new_documents = []
-        for pdf_path in pdf_paths:
-            doc_hash = self.hash_pdf(pdf_path)
+        for file_path in file_paths:
+            doc_hash = self.hash_file(file_path)
             doc_id = doc_hash[:12]  # Same ID generation logic as create_document_metadata
             
             # Check both hash and ID to prevent duplicates
             if doc_hash not in processed_hashes and doc_id not in processed_ids:
-                new_documents.append(pdf_path)
-                logger.info(f"New document found: {pdf_path.name} (hash: {doc_hash[:12]})")
+                new_documents.append(file_path)
+                logger.info(f"New document found: {file_path.name} (hash: {doc_hash[:12]})")
             else:
                 if doc_hash in processed_hashes:
-                    logger.info(f"Skipping already processed document (by hash): {pdf_path.name}")
+                    logger.info(f"Skipping already processed document (by hash): {file_path.name}")
                 elif doc_id in processed_ids:
-                    logger.info(f"Skipping already processed document (by ID): {pdf_path.name}")
+                    logger.info(f"Skipping already processed document (by ID): {file_path.name}")
         
         return new_documents
     
