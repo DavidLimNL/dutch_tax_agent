@@ -192,6 +192,31 @@ uv run dutch-tax-agent ingest -i ~/docs -t tax2024-abc123
 4. ✅ No raw text stored in state after aggregation (cleared at line 546)
 5. ✅ Only structured data persists in checkpoint
 
+## Revolut PDF/CSV Merging
+
+When processing Revolut statements, PDF and CSV files are automatically merged if they share the same base filename (case-insensitive, without extension):
+
+**Example:**
+```bash
+# Initial ingestion: CSV file
+uv run dutch-tax-agent ingest -i ~/docs --year 2024
+# Processes: rev_savings_eur.csv
+# Result: Box 3 asset with deposits/withdrawals, but no Jan 1/Dec 31 values
+
+# Incremental ingestion: PDF file
+uv run dutch-tax-agent ingest -i ~/docs -t tax2024-abc123
+# Processes: rev_savings_eur.pdf
+# Result: PDF values merged with existing CSV asset
+# Final: Single asset with Jan 1, Dec 31, deposits, withdrawals, and calculated actual return
+```
+
+**Merging Logic:**
+- Files are matched by `account_number` (derived from filename: lowercase, without extension)
+- PDF provides: Jan 1 balance, Dec 31 balance
+- CSV provides: Deposits, withdrawals, gains, losses
+- When merged: Actual return is calculated as `(Dec 31 - Jan 1) - (Deposits - Withdrawals)`
+- Processing order doesn't matter: CSV first then PDF, or PDF first then CSV
+
 ## Verification
 
 You can verify this works by:

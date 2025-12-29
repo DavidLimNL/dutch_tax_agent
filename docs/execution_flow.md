@@ -25,6 +25,9 @@ main.py:102
        │   ├─> investment_broker_parser_agent (graph/agents/investment_broker_parser.py:17)
        │   │   └─> Returns: dict with extracted_data
        │   │
+       │   ├─> revolut_parser_agent (graph/agents/revolut_parser.py:17)
+       │   │   └─> Returns: dict with extracted_data (Jan 1/Dec 31 balances)
+       │   │
        │   └─> salary_parser_agent (graph/agents/salary_parser.py:17)
        │       └─> Returns: dict with extracted_data
        │

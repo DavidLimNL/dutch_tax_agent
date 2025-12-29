@@ -31,15 +31,18 @@ graph TD
         
         Dispatcher -->|Send Doc A| DutchAgent(Dutch Parser Agent LLM)
         Dispatcher -->|Send Doc B| InvestmentAgent(Investment Broker Agent LLM)
-        Dispatcher -->|Send Doc C| SalaryAgent(Income Agent LLM)
+        Dispatcher -->|Send Doc C| RevolutAgent(Revolut Parser Agent LLM)
+        Dispatcher -->|Send Doc D| SalaryAgent(Income Agent LLM)
         
         DutchAgent --> ValidatorA[Validator & Currency Tool]
         InvestmentAgent --> ValidatorB[Validator & Currency Tool]
-        SalaryAgent --> ValidatorC[Validator & Currency Tool]
+        RevolutAgent --> ValidatorC[Validator & Currency Tool]
+        SalaryAgent --> ValidatorD[Validator & Currency Tool]
         
         ValidatorA --> Aggregate[Aggregator Node]
         ValidatorB --> Aggregate
         ValidatorC --> Aggregate
+        ValidatorD --> Aggregate
         
         Aggregate --> Reducer[Reducer Node]
         Reducer --> HITL{HITL Control Node}
@@ -61,6 +64,7 @@ graph TD
     style Dispatcher fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style DutchAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style InvestmentAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style RevolutAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style SalaryAgent fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style Compare fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     style HITL fill:#fff4e6,stroke:#ff9800,stroke-width:3px
@@ -91,6 +95,7 @@ Place your PDF tax documents and CSV transaction files in a directory (e.g., `./
 - **Dutch Bank Statements**: ING, ABN AMRO, Rabobank, etc.
 - **US Brokerage Statements**: Interactive Brokers, Charles Schwab, etc.
 - **Crypto Exchange Statements**: Coinbase, Binance, Kraken, etc.
+- **Revolut Statements**: Flexible Cash Funds statements (PDF) with optional CSV transaction files (see below)
 - **Salary Statements**: Dutch payslips (salarisstroken)
 - **Mortgage Statements**: Property-related documents
 - **CSV Transaction Files**: Transaction history files with specific format (see below)
@@ -109,14 +114,56 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 - Option 1: `broker_statement_2024.pdf` (full year)
 - Option 2: `broker_statement_dec2023.pdf` + `broker_statement_dec2024.pdf` (monthly)
 
+#### Revolut Statement Processing
+
+Revolut statements are processed differently from broker statements. The agent supports **Flexible Cash Funds Statements** from Revolut, which can be provided in two ways:
+
+1. **PDF Statement Only**: The PDF statement provides:
+   - Opening balance (Jan 1 value)
+   - Closing balance (Dec 31 value)
+   - Statement period (date range)
+   - Currency
+
+2. **PDF + CSV Transaction File** (Recommended): For complete tax calculation, provide both:
+   - **PDF Statement**: Provides Jan 1 and Dec 31 balances
+   - **CSV Transaction File**: Provides deposits, withdrawals, gains, and losses for actual return calculation
+
+**Matching Files for Merging:**
+- Files are matched by name (case-insensitive, without extension)
+- Example: `rev_savings_eur.pdf` and `rev_savings_eur.csv` will be automatically merged
+- The merged asset will have:
+  - Jan 1 value from PDF
+  - Dec 31 value from PDF
+  - Deposits, withdrawals, gains, losses from CSV
+  - **Actual return calculated automatically** when all values are available
+
+**Processing Order:**
+- You can process PDF and CSV files in any order (PDF first, then CSV, or vice versa)
+- The system automatically merges them during incremental ingestion
+- Both files must be in the same directory or processed in the same session
+
+**Example:**
+```bash
+# Directory structure
+sample_docs/
+├── rev_savings_eur.pdf    # Revolut statement PDF
+└── rev_savings_eur.csv    # Transaction history CSV
+
+# Process both files (order doesn't matter)
+uv run dutch-tax-agent ingest -i ./sample_docs -y 2024
+# Result: Single merged Box 3 asset with all values
+```
+
+**Note:** Only the first 1000 characters of the PDF are sent to the parser to save LLM credits, as Revolut statements typically have key information (period, balances) in the header section.
+
 #### CSV Transaction File Format
 
 The agent supports CSV transaction files for deterministic processing (no LLM required). CSV files must follow this exact format:
 
 ```csv
 Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
-Transfer,Deposit,2024-01-15 15:32:49,2024-01-15 15:32:49,Savings Vault topup,22000.00,0.00,EUR,COMPLETED,22000.00
-Transfer,Deposit,2024-01-19 17:46:53,2024-01-19 17:46:53,Savings Vault topup,27210.54,0.00,EUR,COMPLETED,27210.54
+Transfer,Deposit,2024-01-15 15:32:49,2024-01-15 15:32:49,Example transaction description,1000.00,0.00,EUR,COMPLETED,1000.00
+Transfer,Deposit,2024-01-19 17:46:53,2024-01-19 17:46:53,Example transaction description,1500.00,0.00,EUR,COMPLETED,2500.00
 ...
 ```
 
@@ -135,6 +182,12 @@ Transfer,Deposit,2024-01-19 17:46:53,2024-01-19 17:46:53,Savings Vault topup,272
 - **Total Withdrawals**: Sum of all negative amounts (stored as positive)
 
 Each CSV file is processed as a separate Box 3 asset and appears in the asset table with the filename as the account identifier.
+
+**CSV Files for Revolut:**
+- CSV files matching a Revolut PDF filename (e.g., `rev_savings_eur.csv` with `rev_savings_eur.pdf`) will be automatically merged with the PDF
+- The CSV provides transaction details (deposits, withdrawals, gains, losses)
+- The PDF provides balance snapshots (Jan 1, Dec 31)
+- When merged, the actual return is calculated automatically
 
 ### Run the Agent
 
@@ -275,6 +328,7 @@ dutch_tax_agent/
 │       │   └── agents/                # LLM-based parser agents
 │       │       ├── dutch_parser.py
 │       │       ├── investment_broker_parser.py
+│       │       ├── revolut_parser.py
 │       │       └── salary_parser.py
 │       ├── tools/                     # Deterministic tools
 │       │   ├── currency.py            # ECB rate fetching
@@ -304,12 +358,12 @@ dutch_tax_agent/
   - Full names (with/without spaces, concatenated)
   - First + Last name combinations
   - Individual name parts
-  - **Reversed/inverted names** (e.g., "JOHNDOE" → "EODNHOJ")
+  - **Reversed/inverted names** (e.g., "FIRSTNAMELASTNAME" → "EMANTSALTSRIF")
   - Case-insensitive matching
 - **Custom Address Recognition**: Configurable address scrubbing from `pii_addresses.json` that handles:
   - Full addresses (street, number, postal code, city, country)
   - Separate street and number fields for flexible matching
-  - Multiple city names (Dutch/English variations, e.g., "DEN HAAG" / "THE HAGUE")
+  - Multiple city names (Dutch/English variations, e.g., "EXAMPLE CITY" / "EXAMPLE CITY ALT")
   - Multiple country names (e.g., "NETHERLANDS" / "THE NETHERLANDS" / "NEDERLAND")
   - Postal codes with/without spaces (e.g., "1234AB" / "1234 AB")
   - Reversed/inverted addresses
@@ -331,20 +385,20 @@ The system uses a configuration file to recognize and scrub personal names. **Th
    {
      "names": [
        {
-         "first": "JOHN",
-         "last": "DOE",
+         "first": "FIRSTNAME",
+         "last": "LASTNAME",
          "middle": null,
-         "full_name": "JOHN DOE"
+         "full_name": "FIRSTNAME LASTNAME"
        }
      ]
    }
    ```
 
 3. The recognizer will automatically detect all variations including:
-   - "JOHN DOE" (with space)
-   - "JOHNDOE" (concatenated)
-   - "EODNHOJ" (reversed)
-   - "JOHN" or "DOE" (individual parts)
+   - "FIRSTNAME LASTNAME" (with space)
+   - "FIRSTNAMELASTNAME" (concatenated)
+   - "EMANTSALTSRIF" (reversed)
+   - "FIRSTNAME" or "LASTNAME" (individual parts)
    - All case variations
 
 **⚠️ Important**: 
@@ -365,21 +419,21 @@ The system uses a configuration file to recognize and scrub addresses. **This fi
    {
      "addresses": [
        {
-         "street": "KALVERSTRAAT",
+         "street": "EXAMPLE STREET",
          "number": "123",
          "postal_code": "1234AB",
-         "city": ["DEN HAAG", "THE HAGUE"],
+         "city": ["EXAMPLE CITY", "EXAMPLE CITY ALT"],
          "country": ["NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"],
-         "full_address": "KALVERSTRAAT 123 1234 AB DEN HAAG"
+         "full_address": "EXAMPLE STREET 123 1234 AB EXAMPLE CITY"
        }
      ]
    }
    ```
 
 3. The recognizer will automatically detect all variations including:
-   - Street + number: "KALVERSTRAAT 123" or "KALVERSTRAAT123"
+   - Street + number: "EXAMPLE STREET 123" or "EXAMPLESTREET123"
    - Postal codes: "1234AB" or "1234 AB"
-   - City variations: "DEN HAAG" or "THE HAGUE"
+   - City variations: "EXAMPLE CITY" or "EXAMPLE CITY ALT"
    - Country variations: "NETHERLANDS", "THE NETHERLANDS", "NEDERLAND", "HOLLAND"
    - Full address combinations
    - Reversed/inverted addresses

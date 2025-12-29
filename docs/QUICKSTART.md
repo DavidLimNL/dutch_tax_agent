@@ -74,6 +74,8 @@ Place your PDF tax documents in the `sample_docs/` directory:
 sample_docs/
 ├── ing_bank_statement_jan2024.pdf
 ├── us_broker_statement_2024.pdf
+├── rev_savings_eur.pdf          # Revolut statement PDF
+├── rev_savings_eur.csv          # Revolut transaction CSV (optional, merges with PDF)
 ├── salary_jan_2024.pdf
 └── salary_feb_2024.pdf
 ```
@@ -93,6 +95,20 @@ For broker statements (US brokerage or crypto exchange), you have two options:
 - Option 2: `broker_statement_dec2023.pdf` + `broker_statement_dec2024.pdf` (monthly)
 
 **⚠️ Security Note**: Never commit real financial documents to git. The `sample_docs/` directory is gitignored.
+
+### Revolut Statement Processing
+
+For Revolut Flexible Cash Funds statements, you can provide:
+- **PDF Statement**: Contains opening/closing balances and period information
+- **CSV Transaction File** (optional): Contains transaction details for actual return calculation
+
+Files are automatically matched by name (case-insensitive). For example:
+- `rev_savings_eur.pdf` + `rev_savings_eur.csv` → Merged into single asset
+- The PDF provides Jan 1 and Dec 31 balances
+- The CSV provides deposits, withdrawals, gains, and losses
+- Actual return is calculated automatically when both files are present
+
+See the main [README.md](../README.md) for detailed information about Revolut statement processing.
 
 ## Step 5: Run the Agent
 
