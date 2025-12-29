@@ -39,7 +39,7 @@ def calculate_actual_return(
 
     # Calculate total wealth (Jan 1)
     # Exclude mortgages and debts from total_assets (they're liabilities, not assets)
-    total_assets = sum(asset.value_eur_jan1 for asset in assets if asset.asset_type not in ["mortgage", "debt"])
+    total_assets = sum((asset.value_eur_jan1 or 0.0) for asset in assets if asset.asset_type not in ["mortgage", "debt"])
     # TODO: Mortgages and debts are extracted separately but not yet included in calculations
     # Mortgages (asset_type="mortgage") and other debts (asset_type="debt") are handled differently by tax office
     total_debts = 0.0
@@ -57,7 +57,7 @@ def calculate_actual_return(
         # Indirect: Value changes (Unrealized)
         # Only if we have end-of-year value. If not, we might assume 0 change or missing data.
         if asset.value_eur_dec31 is not None:
-            start_val = asset.value_eur_jan1
+            start_val = asset.value_eur_jan1 or 0.0
             end_val = asset.value_eur_dec31
             dep = asset.deposits_eur or 0.0
             withd = asset.withdrawals_eur or 0.0

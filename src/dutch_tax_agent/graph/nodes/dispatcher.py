@@ -202,9 +202,12 @@ def dispatcher_node(state: TaxGraphState) -> Command:
 
     if not state.documents:
         logger.warning("No documents to dispatch. Check if PII scrubbing succeeded.")
-        # Return Command with just state update, no routing (will end)
+        # Route to HITL control to pause (instead of ending)
+        # This ensures the graph remains active so it can be resumed later
+        # (e.g., for incremental ingestion where we might ingest a CSV first, then a PDF)
         return Command(
-            update={"status": "awaiting_human"}
+            update={"status": "awaiting_human"},
+            goto="hitl_control"
         )
 
     classified_docs = []

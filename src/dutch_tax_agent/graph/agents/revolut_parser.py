@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import date
+from pathlib import Path
 
 from langchain_core.messages import HumanMessage
 from langsmith import traceable
@@ -167,8 +168,12 @@ If no balance data found, return: {{"box3_items": [], "document_date_range": {{"
                 item["realized_losses_eur"] = None
             if "description" not in item:
                 item["description"] = "Revolut Account Statement"
-            if "account_number" not in item:
-                item["account_number"] = None
+            if "account_number" not in item or item["account_number"] is None or item["account_number"] == "":
+                # Extract account_number from filename (without extension, lowercase for case-insensitive matching)
+                # This allows matching with CSV files: rev_savings_eur.pdf matches rev_savings_eur.csv
+                filename_stem = Path(filename).stem.lower()
+                item["account_number"] = filename_stem
+                logger.info(f"Set account_number from filename: {filename_stem}")
             if "extraction_confidence" not in item:
                 # Default to 0.8 to match classification confidence default
                 item["extraction_confidence"] = 0.8

@@ -132,6 +132,10 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
     
     # First, add existing items from state (for incremental ingestion deduplication)
     # But skip items from documents that are being reprocessed (to prevent duplicates)
+    logger.info(
+        f"Aggregator: Found {len(state.box3_asset_items)} existing assets in state, "
+        f"processing {len(all_box3_items)} new assets from validated results"
+    )
     for existing_asset in state.box3_asset_items:
         # Skip existing items from documents that are in the new batch (they'll be replaced)
         if existing_asset.source_doc_id in new_doc_ids:
@@ -275,7 +279,8 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     "notes": asset_note,
                 })
             else:
-                # Quarantine: missing required dates for actual return calculation
+                # Missing required dates for actual return calculation
+                # Still add to merged items so it persists in state for incremental merging
                 missing_dates = []
                 if not has_jan1:
                     missing_dates.append("January 1st")
@@ -290,6 +295,18 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 )
                 quarantined_assets.append((asset, quarantine_msg))
                 logger.warning(quarantine_msg)
+                
+                # Add to merged items despite missing values
+                merged_box3_items.append(asset)
+                asset_table_data.append({
+                    "description": asset.description or "Unknown",
+                    "asset_type": asset.asset_type,
+                    "account_number": asset.account_number or "",
+                    "source_filename": asset.source_filename,
+                    "jan1": asset.value_eur_jan1,
+                    "dec31": asset.value_eur_dec31,
+                    "notes": f"WARNING: Missing {', '.join(missing_dates)}",
+                })
         else:
             # Merge multiple assets for the same account
             match_type = account_key[0]
@@ -335,19 +352,40 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 if doc_in_dec:
                     dec_documents.append(a)
             
+            # For simple merging (e.g., CSV + PDF), first try to combine values directly
+            # This handles cases where one asset has Jan 1/Dec 31 and another has deposits/withdrawals
+            simple_merge_jan1 = None
+            simple_merge_dec31 = None
+            for a in assets:
+                # Prefer non-zero, non-None values
+                if simple_merge_jan1 is None or simple_merge_jan1 == 0.0:
+                    if a.value_eur_jan1 is not None and a.value_eur_jan1 != 0.0:
+                        simple_merge_jan1 = a.value_eur_jan1
+                    elif a.value_eur_jan1 is not None:
+                        simple_merge_jan1 = a.value_eur_jan1
+                if simple_merge_dec31 is None or simple_merge_dec31 == 0.0:
+                    if a.value_eur_dec31 is not None and a.value_eur_dec31 != 0.0:
+                        simple_merge_dec31 = a.value_eur_dec31
+                    elif a.value_eur_dec31 is not None:
+                        simple_merge_dec31 = a.value_eur_dec31
+            
             # Extract Jan 1 value from January-dated documents (preferred) or from other documents with Jan 1 values
             # This includes dec_prev_year documents (December statements of previous year used as Jan 1 value)
-            merged_jan1 = None
-            has_jan1 = False
+            # Start with simple merge result, but allow date-based logic to override if it finds better values
+            merged_jan1 = simple_merge_jan1
+            has_jan1 = simple_merge_jan1 is not None
+            date_based_jan1_found = False
+            
             if jan_documents:
                 # Look for Jan 1 value in January documents (preferred)
                 for a in jan_documents:
                     if getattr(a, '_jan1_was_extracted', True) and a.value_eur_jan1 is not None:
                         merged_jan1 = a.value_eur_jan1
                         has_jan1 = True
+                        date_based_jan1_found = True
                         break
-                # If not found but we have January documents, assume 0
-                if not has_jan1:
+                # If not found but we have January documents, assume 0 (but only if simple merge didn't find anything)
+                if not date_based_jan1_found and not has_jan1:
                     merged_jan1 = 0.0
                     has_jan1 = True
                     logger.info(
@@ -359,13 +397,16 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 # This handles cases like dec_prev_year documents (December of previous year used as Jan 1)
                 for a in assets:
                     if getattr(a, '_jan1_was_extracted', True) and a.value_eur_jan1 is not None:
-                        merged_jan1 = a.value_eur_jan1
-                        has_jan1 = True
-                        logger.info(
-                            f"Found Jan 1 value from non-January document for {base_asset.description or 'Unknown'} "
-                            f"({base_asset.asset_type}) - likely from December statement of previous year"
-                        )
-                        break
+                        # Only override simple merge if this value is better (non-zero)
+                        if a.value_eur_jan1 != 0.0 or merged_jan1 is None:
+                            merged_jan1 = a.value_eur_jan1
+                            has_jan1 = True
+                            date_based_jan1_found = True
+                            logger.info(
+                                f"Found Jan 1 value from non-January document for {base_asset.description or 'Unknown'} "
+                                f"({base_asset.asset_type}) - likely from December statement of previous year"
+                            )
+                            break
                 
                 if not has_jan1:
                     # Check if this is a mid-year account opening scenario
@@ -386,17 +427,21 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                         )
             
             # Extract Dec 31 value from December-dated documents only
-            merged_dec31 = None
-            has_dec31 = False
+            # Start with simple merge result, but allow date-based logic to override if it finds better values
+            merged_dec31 = simple_merge_dec31
+            has_dec31 = simple_merge_dec31 is not None
+            date_based_dec31_found = False
+            
             if dec_documents:
                 # Look for Dec 31 value in December documents
                 for a in dec_documents:
                     if a.value_eur_dec31 is not None and getattr(a, '_dec31_was_extracted', True):
                         merged_dec31 = a.value_eur_dec31
                         has_dec31 = True
+                        date_based_dec31_found = True
                         break
-                # If not found but we have December documents, assume 0
-                if not has_dec31:
+                # If not found but we have December documents, assume 0 (but only if simple merge didn't find anything)
+                if not date_based_dec31_found and not has_dec31:
                     merged_dec31 = 0.0
                     has_dec31 = True
                     logger.info(
@@ -404,13 +449,24 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                         f"({base_asset.asset_type}), assuming 0.0"
                     )
             else:
-                # No December documents found - check if this is a mid-year statement ending before Dec 31
-                if has_jan1:
+                # No December documents found - check all assets for Dec 31 values (fallback)
+                if not has_dec31:
+                    for a in assets:
+                        if a.value_eur_dec31 is not None and getattr(a, '_dec31_was_extracted', True):
+                            # Only override simple merge if this value is better (non-zero)
+                            if a.value_eur_dec31 != 0.0 or merged_dec31 is None:
+                                merged_dec31 = a.value_eur_dec31
+                                has_dec31 = True
+                                date_based_dec31_found = True
+                                break
+                
+                # If still no Dec 31, check if this is a mid-year statement ending before Dec 31
+                if not has_dec31 and has_jan1:
                     # If we have Jan 1 data but no Dec 31 data, statement ends mid-year - set Dec 31 to 0
                     merged_dec31 = 0.0
                     has_dec31 = True
                     merged_notes.append("Mid-year ending: Dec 31 not found")
-                else:
+                elif not has_dec31:
                     # No December documents found - cannot determine Dec 31 value
                     logger.warning(
                         f"No December-dated documents found for {base_asset.description or 'Unknown'} "
@@ -435,7 +491,13 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 )
                 quarantined_assets.append((base_asset, quarantine_msg))
                 logger.warning(quarantine_msg)
-                continue  # Skip adding to merged_box3_items
+                
+                # Proceed to create merged asset despite missing values (best effort)
+                # This ensures we don't lose the partial data during merging
+                if merged_notes:
+                    merged_notes.append(f"WARNING: Missing {', '.join(missing_dates)}")
+                else:
+                    merged_notes.append(f"WARNING: Missing {', '.join(missing_dates)}")
             
             # Combine realized gains/losses (sum them)
             total_gains = sum(a.realized_gains_eur or 0.0 for a in assets)
@@ -576,13 +638,28 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
 
     # IMPORTANT: Because box3_asset_items uses the 'add' operator, LangGraph will append
     # the returned list to existing items. We've already merged new items with existing
-    # items in account_map, so we need to return ONLY items that involve new documents.
+    # items in account_map, so we need to handle merging correctly.
     # 
-    # Strategy: Return only merged items from accounts that had new items.
-    # This includes:
-    # 1. New accounts (only new items)
-    # 2. Existing accounts that got new items (merged new + existing)
+    # Strategy: 
+    # 1. Track which existing assets were merged (so we can exclude them)
+    # 2. Return merged items for accounts that had new items
+    # 3. Return existing items that weren't merged
+    # 4. Use Replace to ensure merged assets replace the originals
+    
+    # Track source_doc_ids of assets that were merged (to exclude original assets)
+    merged_source_doc_ids = set()
+    for account_key, assets in account_map.items():
+        if len(assets) > 1:  # This account was merged
+            # All assets in this account were merged, so mark their doc_ids
+            for asset in assets:
+                merged_source_doc_ids.add(asset.source_doc_id)
+    
+    # Collect items to return:
+    # 1. Merged items for accounts that had new items
+    # 2. Existing items that weren't merged
     items_to_return = []
+    accounts_with_new_items = set()
+    
     for merged_item in merged_box3_items:
         # Determine the account key for this merged item
         if merged_item.account_number:
@@ -598,15 +675,46 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             # This account has new items - return the merged result
             # (either new account or merged with existing)
             items_to_return.append(merged_item)
+            accounts_with_new_items.add(item_account_key)
+    
+    # Also include existing items that weren't merged and weren't part of accounts with new items
+    for existing_asset in state.box3_asset_items:
+        # Skip if this asset was merged (its doc_id is in merged_source_doc_ids)
+        if existing_asset.source_doc_id in merged_source_doc_ids:
+            logger.debug(
+                f"Skipping existing asset from doc {existing_asset.source_doc_id} "
+                f"({existing_asset.source_filename}) - was merged with new items"
+            )
+            continue
+        
+        # Skip if this asset's account got new items (it was merged)
+        if existing_asset.account_number:
+            asset_account_key = ("account_number", existing_asset.account_number, existing_asset.asset_type)
+        else:
+            asset_account_key = ("description", existing_asset.description or "", existing_asset.asset_type)
+        
+        if asset_account_key in accounts_with_new_items:
+            logger.debug(
+                f"Skipping existing asset from doc {existing_asset.source_doc_id} "
+                f"({existing_asset.source_filename}) - account was merged"
+            )
+            continue
+        
+        # This existing asset wasn't merged, keep it
+        items_to_return.append(existing_asset)
     
     logger.info(
-        f"Returning {len(items_to_return)} Box3 items (from {len(merged_box3_items)} merged items, "
-        f"{len(new_doc_ids)} new documents)"
+        f"Returning {len(items_to_return)} Box3 items: "
+        f"{len([i for i in items_to_return if i.source_doc_id in new_doc_ids])} new/merged, "
+        f"{len([i for i in items_to_return if i.source_doc_id not in new_doc_ids])} existing (unmerged), "
+        f"{len(merged_source_doc_ids)} source doc_ids were merged"
     )
     
+    # Use Replace to replace all assets, ensuring merged assets replace originals
+    from dutch_tax_agent.schemas.state import Replace
     return {
         "box1_income_items": all_box1_items,
-        "box3_asset_items": items_to_return,  # Return only new/merged items, not existing ones
+        "box3_asset_items": Replace(items_to_return),  # Replace all to ensure merged assets replace originals
         "validation_errors": list(state.validation_errors) + all_errors,
         "validation_warnings": list(state.validation_warnings) + all_warnings,
         "status": "validating",

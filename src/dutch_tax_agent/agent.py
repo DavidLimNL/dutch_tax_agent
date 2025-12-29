@@ -8,6 +8,7 @@ from typing import Optional
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from langgraph.types import Command
 
 from dutch_tax_agent.checkpoint_utils import generate_thread_id, get_thread_state, thread_exists
 from dutch_tax_agent.config import settings
@@ -279,7 +280,7 @@ class DutchTaxAgent:
                             original_currency=csv_data["currency"],
                             reference_date=date(self.tax_year, 1, 1),
                             description=f"CSV Transaction File: {csv_path.stem}",
-                            account_number=csv_path.stem,  # Use filename as account number
+                            account_number=csv_path.stem.lower(),  # Use filename as account number (lowercase for case-insensitive matching)
                             extraction_confidence=1.0,  # Deterministic parsing
                             original_text_snippet=None,
                         )
@@ -396,8 +397,107 @@ class DutchTaxAgent:
                 self.thread_id
             )
             
-            # Add CSV Box3 items to existing items
-            updated_box3_items = list(state.box3_asset_items) + csv_box3_items
+            # Merge CSV Box3 items with existing items by account_number + asset_type
+            # This ensures PDF and CSV files for the same account are merged
+            from collections import defaultdict
+            account_map: dict[tuple[str, str], list] = defaultdict(list)
+            
+            # Add existing items to account map
+            for existing_asset in state.box3_asset_items:
+                if existing_asset.account_number:
+                    account_key = (existing_asset.account_number, existing_asset.asset_type)
+                else:
+                    account_key = (existing_asset.description or "", existing_asset.asset_type)
+                account_map[account_key].append(existing_asset)
+            
+            # Add CSV items to account map (will merge with existing if same account)
+            for csv_asset in csv_box3_items:
+                if csv_asset.account_number:
+                    account_key = (csv_asset.account_number, csv_asset.asset_type)
+                else:
+                    account_key = (csv_asset.description or "", csv_asset.asset_type)
+                account_map[account_key].append(csv_asset)
+            
+            # Merge assets for each account
+            updated_box3_items = []
+            for account_key, assets in account_map.items():
+                if len(assets) == 1:
+                    # No merging needed
+                    updated_box3_items.append(assets[0])
+                else:
+                    # Merge multiple assets for the same account
+                    base_asset = assets[0]
+                    
+                    # Combine values: prefer non-zero/non-None values
+                    merged_jan1 = None
+                    merged_dec31 = None
+                    merged_deposits = 0.0
+                    merged_withdrawals = 0.0
+                    merged_gains = 0.0
+                    merged_losses = 0.0
+                    
+                    for asset in assets:
+                        # Jan 1: prefer non-zero values, then non-None
+                        if merged_jan1 is None or merged_jan1 == 0.0:
+                            if asset.value_eur_jan1 is not None and asset.value_eur_jan1 != 0.0:
+                                merged_jan1 = asset.value_eur_jan1
+                            elif asset.value_eur_jan1 is not None:
+                                merged_jan1 = asset.value_eur_jan1
+                        
+                        # Dec 31: prefer non-zero values, then non-None
+                        if merged_dec31 is None or merged_dec31 == 0.0:
+                            if asset.value_eur_dec31 is not None and asset.value_eur_dec31 != 0.0:
+                                merged_dec31 = asset.value_eur_dec31
+                            elif asset.value_eur_dec31 is not None:
+                                merged_dec31 = asset.value_eur_dec31
+                        
+                        # Sum deposits, withdrawals, gains, losses
+                        merged_deposits += asset.deposits_eur or 0.0
+                        merged_withdrawals += asset.withdrawals_eur or 0.0
+                        merged_gains += asset.realized_gains_eur or 0.0
+                        merged_losses += asset.realized_losses_eur or 0.0
+                    
+                    # Calculate actual return if we have both jan1 and dec31
+                    actual_return = None
+                    if merged_jan1 is not None and merged_dec31 is not None:
+                        actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
+                    
+                    # Use Jan 1 value as default if still None
+                    if merged_jan1 is None:
+                        merged_jan1 = 0.0
+                    
+                    # Combine source filenames
+                    all_filenames = [a.source_filename for a in assets]
+                    combined_filename = ", ".join(set(all_filenames))
+                    
+                    # Create merged asset
+                    merged_asset = Box3Asset(
+                        source_doc_id=base_asset.source_doc_id,  # Use first doc_id
+                        source_filename=combined_filename,
+                        source_page=base_asset.source_page,
+                        asset_type=base_asset.asset_type,
+                        value_eur_jan1=merged_jan1,
+                        value_eur_dec31=merged_dec31,
+                        deposits_eur=merged_deposits if merged_deposits > 0 else None,
+                        withdrawals_eur=merged_withdrawals if merged_withdrawals > 0 else None,
+                        realized_gains_eur=merged_gains if merged_gains > 0 else None,
+                        realized_losses_eur=merged_losses if merged_losses > 0 else None,
+                        actual_return_eur=actual_return,
+                        original_value=base_asset.original_value,
+                        original_currency=base_asset.original_currency,
+                        conversion_rate=base_asset.conversion_rate,
+                        reference_date=base_asset.reference_date,
+                        description=base_asset.description,  # Keep original description
+                        account_number=base_asset.account_number,  # Keep account_number
+                        extraction_confidence=min(a.extraction_confidence for a in assets),
+                        original_text_snippet=base_asset.original_text_snippet,
+                    )
+                    updated_box3_items.append(merged_asset)
+                    logger.info(
+                        f"Merged {len(assets)} assets for account {account_key[0]} "
+                        f"({account_key[1]}): {combined_filename}"
+                    )
+            
             updated_box3_total = sum(item.value_eur_jan1 for item in updated_box3_items)
             
             updates = {
@@ -419,23 +519,33 @@ class DutchTaxAgent:
                 try:
                     # Update state and resume execution
                     config = {"configurable": {"thread_id": self.thread_id}}
-                    logger.info(f"Applying state updates: {list(updates.keys())}")
                     self.graph.update_state(config, updates)
                     
-                    # Resume execution with None input (continues from checkpoint)
-                    logger.info(f"Resuming graph execution (thread: {self.thread_id})")
-                    final_state_dict = None
-                    for event in self.graph.stream(None, config=config, stream_mode="updates"):
-                        node_name = list(event.keys())[0] if event else "unknown"
-                        logger.info(f"Graph executing node: {node_name}")
-                        if node_name != "__interrupt__":
-                            final_state_dict = list(event.values())[0] if event else None
+                    # Resume execution - use invoke to execute past the interrupt_before
+                    # When using interrupt_before, stream() will hit the interrupt immediately
+                    # invoke() will execute through the interrupt and continue to completion
                     
-                    # If stream didn't yield any non-interrupt events, get state from checkpoint
-                    if final_state_dict is None:
-                        logger.warning("Stream yielded no non-interrupt events, getting state from checkpoint")
+                    try:
+                        # Use Command to force routing to hitl_control if resuming
+                        # This ensures that even if the pending task was cleared by update_state,
+                        # we explicitly tell the graph where to resume.
+                        resume_command = Command(goto="hitl_control")
+                        
+                        final_state_dict = self.graph.invoke(resume_command, config=config)
+                        
+                        # Handle case where invoke returns None (rare but possible with some configurations)
+                        if final_state_dict is None:
+                            from dutch_tax_agent.checkpoint_utils import get_checkpoint_state
+                            final_state_dict = get_checkpoint_state(self.graph.checkpointer, self.thread_id)
+                    except Exception as e:
+                        logger.error(f"Graph invoke failed: {e}")
+                        # Fallback: get state from checkpoint
                         from dutch_tax_agent.checkpoint_utils import get_checkpoint_state
                         final_state_dict = get_checkpoint_state(self.graph.checkpointer, self.thread_id)
+                    
+                    # Ensure we have a valid state dict
+                    if final_state_dict is None:
+                        raise RuntimeError("Failed to get final state from graph execution or checkpoint")
                     
                     # LangGraph returns dict, convert to TaxGraphState for type safety
                     final_state = TaxGraphState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
