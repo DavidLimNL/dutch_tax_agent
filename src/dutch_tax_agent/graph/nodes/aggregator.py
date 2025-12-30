@@ -206,19 +206,24 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 )
                 if asset.value_eur_dec31 is not None:
                     if is_eur_savings:
-                        # EUR savings: use realized gains only (sum of RETURN PAID transactions)
-                        actual_return = asset.realized_gains_eur
+                        # EUR savings: prefer realized gains (sum of RETURN PAID transactions)
+                        # But fall back to formula if realized_gains_eur is None or 0
                         formula_result = (dec31 - 0.0) - (deposits - withdrawals)
-                        if actual_return is not None and formula_result is not None:
-                            if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
-                                audit_note = (
-                                    f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
-                                    f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
-                                )
-                                if asset_note:
-                                    asset_note += "; " + audit_note
-                                else:
-                                    asset_note = audit_note
+                        if asset.realized_gains_eur is not None and asset.realized_gains_eur > 0:
+                            actual_return = asset.realized_gains_eur
+                            if formula_result is not None:
+                                if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                                    audit_note = (
+                                        f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                        f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                                    )
+                                    if asset_note:
+                                        asset_note += "; " + audit_note
+                                    else:
+                                        asset_note = audit_note
+                        else:
+                            # Fall back to formula when realized_gains_eur is not available
+                            actual_return = formula_result
                     else:
                         # Foreign currency: use formula to capture FX gains
                         actual_return = (dec31 - 0.0) - (deposits - withdrawals)
@@ -273,19 +278,24 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                     asset.asset_type == "savings"
                 )
                 if is_eur_savings:
-                    # EUR savings: use realized gains only (sum of RETURN PAID transactions)
-                    actual_return = asset.realized_gains_eur
+                    # EUR savings: prefer realized gains (sum of RETURN PAID transactions)
+                    # But fall back to formula if realized_gains_eur is None or 0
                     formula_result = (0.0 - jan1) - (deposits - withdrawals)
-                    if actual_return is not None and formula_result is not None:
-                        if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
-                            audit_note = (
-                                f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
-                                f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
-                            )
-                            if asset_note:
-                                asset_note += "; " + audit_note
-                            else:
-                                asset_note = audit_note
+                    if asset.realized_gains_eur is not None and asset.realized_gains_eur > 0:
+                        actual_return = asset.realized_gains_eur
+                        if formula_result is not None:
+                            if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                                audit_note = (
+                                    f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                    f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                                )
+                                if asset_note:
+                                    asset_note += "; " + audit_note
+                                else:
+                                    asset_note = audit_note
+                    else:
+                        # Fall back to formula when realized_gains_eur is not available
+                        actual_return = formula_result
                 else:
                     # Foreign currency: use formula to capture FX gains
                     actual_return = (0.0 - jan1) - (deposits - withdrawals)
@@ -314,6 +324,51 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 has_dec31 = True
             
             if has_jan1 and has_dec31:
+                # Recalculate actual_return_eur if it's missing (e.g., CSVTransactionParser with no realized_gains)
+                # This ensures actual_return_eur is always calculated when we have the necessary data
+                if asset.actual_return_eur is None:
+                    jan1 = asset.value_eur_jan1 or 0.0
+                    dec31 = asset.value_eur_dec31 or 0.0
+                    deposits = asset.deposits_eur or 0.0
+                    withdrawals = asset.withdrawals_eur or 0.0
+                    is_eur_savings = (
+                        asset.original_currency == "EUR" and 
+                        asset.asset_type == "savings"
+                    )
+                    if is_eur_savings:
+                        # EUR savings: prefer realized gains, but fall back to formula if not available
+                        if asset.realized_gains_eur is not None and asset.realized_gains_eur > 0:
+                            actual_return = asset.realized_gains_eur
+                        else:
+                            # Fall back to formula when realized_gains_eur is not available
+                            actual_return = (dec31 - jan1) - (deposits - withdrawals)
+                    else:
+                        # Foreign currency: use formula to capture FX gains
+                        actual_return = (dec31 - jan1) - (deposits - withdrawals)
+                    
+                    # Create updated asset with recalculated actual_return_eur
+                    asset = Box3Asset(
+                        source_doc_id=asset.source_doc_id,
+                        source_filename=asset.source_filename,
+                        source_page=asset.source_page,
+                        asset_type=asset.asset_type,
+                        value_eur_jan1=asset.value_eur_jan1,
+                        value_eur_dec31=asset.value_eur_dec31,
+                        deposits_eur=asset.deposits_eur,
+                        withdrawals_eur=asset.withdrawals_eur,
+                        actual_return_eur=actual_return,
+                        realized_gains_eur=asset.realized_gains_eur,
+                        realized_losses_eur=asset.realized_losses_eur,
+                        original_value=asset.original_value,
+                        original_currency=asset.original_currency,
+                        conversion_rate=asset.conversion_rate,
+                        reference_date=asset.reference_date,
+                        description=asset.description,
+                        account_number=asset.account_number,
+                        extraction_confidence=asset.extraction_confidence,
+                        original_text_snippet=asset.original_text_snippet,
+                    )
+                
                 merged_box3_items.append(asset)
                 # Collect data for table display
                 asset_table_data.append({
@@ -571,16 +626,21 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             description_with_audit = base_asset.description
             if merged_dec31 is not None:
                 if is_eur_savings:
-                    # EUR savings: use realized gains only (sum of RETURN PAID transactions)
-                    actual_return = total_gains if total_gains > 0 else None
+                    # EUR savings: prefer realized gains (sum of RETURN PAID transactions)
+                    # But fall back to formula if total_gains is None or 0
                     formula_result = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
-                    if actual_return is not None and formula_result is not None:
-                        if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
-                            audit_note = (
-                                f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
-                                f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
-                            )
-                            merged_notes.append(audit_note)
+                    if total_gains is not None and total_gains > 0:
+                        actual_return = total_gains
+                        if formula_result is not None:
+                            if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                                audit_note = (
+                                    f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                    f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                                )
+                                merged_notes.append(audit_note)
+                    else:
+                        # Fall back to formula when realized_gains_eur is not available
+                        actual_return = formula_result
                 else:
                     # Foreign currency: use formula to capture FX gains
                     actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)

@@ -260,15 +260,22 @@ class DutchTaxAgent:
                         realized_gains = csv_data.get("realized_gains_eur", 0.0)
                         
                         # Calculate Actual Return
-                        # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+                        # For EUR savings accounts, prefer realized interest (realized_gains_eur)
+                        # But fall back to formula if realized_gains_eur is not available
                         # For foreign currency accounts, use formula to capture FX gains
                         currency = csv_data["currency"]
                         is_eur_savings = currency == "EUR"  # CSV files default to "savings" asset_type
                         actual_return = None
                         if jan1 is not None and dec31 is not None:
                             if is_eur_savings:
-                                # EUR savings: use realized gains only (sum of RETURN PAID transactions)
-                                actual_return = realized_gains if realized_gains > 0 else None
+                                # EUR savings: prefer realized gains (sum of RETURN PAID transactions)
+                                # But fall back to formula if realized_gains is None or 0
+                                formula_result = (dec31 - jan1) - (deposits - withdrawals)
+                                if realized_gains is not None and realized_gains > 0:
+                                    actual_return = realized_gains
+                                else:
+                                    # Fall back to formula when realized_gains is not available
+                                    actual_return = formula_result
                             else:
                                 # Foreign currency: use formula to capture FX gains
                                 actual_return = (dec31 - jan1) - (deposits - withdrawals)
