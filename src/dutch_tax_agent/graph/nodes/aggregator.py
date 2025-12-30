@@ -197,8 +197,33 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 dec31 = asset.value_eur_dec31 or 0.0
                 deposits = asset.deposits_eur or 0.0
                 withdrawals = asset.withdrawals_eur or 0.0
-                # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
-                actual_return = (dec31 - 0.0) - (deposits - withdrawals) if asset.value_eur_dec31 is not None else None
+                # Calculate Actual Return
+                # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+                # For foreign currency accounts, use formula to capture FX gains
+                is_eur_savings = (
+                    asset.original_currency == "EUR" and 
+                    asset.asset_type == "savings"
+                )
+                if asset.value_eur_dec31 is not None:
+                    if is_eur_savings:
+                        # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                        actual_return = asset.realized_gains_eur
+                        formula_result = (dec31 - 0.0) - (deposits - withdrawals)
+                        if actual_return is not None and formula_result is not None:
+                            if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                                audit_note = (
+                                    f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                    f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                                )
+                                if asset_note:
+                                    asset_note += "; " + audit_note
+                                else:
+                                    asset_note = audit_note
+                    else:
+                        # Foreign currency: use formula to capture FX gains
+                        actual_return = (dec31 - 0.0) - (deposits - withdrawals)
+                else:
+                    actual_return = None
                 
                 asset = Box3Asset(
                     source_doc_id=asset.source_doc_id,
@@ -240,8 +265,30 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
                 jan1 = asset.value_eur_jan1
                 deposits = asset.deposits_eur or 0.0
                 withdrawals = asset.withdrawals_eur or 0.0
-                # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
-                actual_return = (0.0 - jan1) - (deposits - withdrawals)
+                # Calculate Actual Return
+                # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+                # For foreign currency accounts, use formula to capture FX gains
+                is_eur_savings = (
+                    asset.original_currency == "EUR" and 
+                    asset.asset_type == "savings"
+                )
+                if is_eur_savings:
+                    # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                    actual_return = asset.realized_gains_eur
+                    formula_result = (0.0 - jan1) - (deposits - withdrawals)
+                    if actual_return is not None and formula_result is not None:
+                        if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                            audit_note = (
+                                f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                            )
+                            if asset_note:
+                                asset_note += "; " + audit_note
+                            else:
+                                asset_note = audit_note
+                else:
+                    # Foreign currency: use formula to capture FX gains
+                    actual_return = (0.0 - jan1) - (deposits - withdrawals)
                 
                 asset = Box3Asset(
                     source_doc_id=asset.source_doc_id,
@@ -511,12 +558,32 @@ def aggregate_extraction_node(state: TaxGraphState) -> dict:
             # Use Jan 1 of tax year as the reference_date for merged assets
             merged_reference_date = date(tax_year, 1, 1)
             
-            # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+            # Calculate Actual Return
+            # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+            # For foreign currency accounts, use formula to capture FX gains
             merged_deposits = sum(a.deposits_eur or 0.0 for a in assets)
             merged_withdrawals = sum(a.withdrawals_eur or 0.0 for a in assets)
+            is_eur_savings = (
+                base_asset.original_currency == "EUR" and 
+                base_asset.asset_type == "savings"
+            )
             actual_return = None
+            description_with_audit = base_asset.description
             if merged_dec31 is not None:
-                actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
+                if is_eur_savings:
+                    # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                    actual_return = total_gains if total_gains > 0 else None
+                    formula_result = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
+                    if actual_return is not None and formula_result is not None:
+                        if abs(actual_return - formula_result) > 0.01:  # Only note if significantly different
+                            audit_note = (
+                                f"AUDIT: EUR Savings - Used Direct Income (€{actual_return:,.2f}) "
+                                f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                            )
+                            merged_notes.append(audit_note)
+                else:
+                    # Foreign currency: use formula to capture FX gains
+                    actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
             
             merged_asset = Box3Asset(
                 source_doc_id=base_asset.source_doc_id,  # Use first doc_id as primary

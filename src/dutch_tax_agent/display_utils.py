@@ -48,7 +48,27 @@ def print_box3_assets_table(assets: list[Union[Box3Asset, dict]], title: str = "
             withdrawals = asset.withdrawals_eur
             direct_income = asset.realized_gains_eur
             actual_return = asset.actual_return_eur
-            notes = ""  # Notes column - empty for now
+            
+            # Calculate audit note for EUR savings accounts
+            notes = ""
+            is_eur_savings = (
+                asset.original_currency == "EUR" and 
+                asset.asset_type == "savings"
+            )
+            if is_eur_savings and asset.value_eur_dec31 is not None:
+                # Check if direct income differs from formula result
+                start_val = asset.value_eur_jan1 or 0.0
+                end_val = asset.value_eur_dec31
+                dep = asset.deposits_eur or 0.0
+                withd = asset.withdrawals_eur or 0.0
+                formula_result = end_val - start_val - dep + withd
+                
+                if direct_income is not None and formula_result is not None:
+                    if abs(direct_income - formula_result) > 0.01:  # Only note if significantly different
+                        notes = (
+                            f"AUDIT: EUR Savings - Used Direct Income (€{direct_income:,.2f}) "
+                            f"instead of Formula (€{formula_result:,.2f}) to exclude accrued interest"
+                        )
         else:
             # Dictionary format (from get_status())
             account_num = asset.get("account_number")

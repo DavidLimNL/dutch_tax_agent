@@ -53,7 +53,13 @@ def calculate_actual_return(
         # Direct: Dividends, Interest, etc.
         if asset.realized_gains_eur:
             direct_return += asset.realized_gains_eur
-            
+        
+        # Check if this is an EUR savings account (fixed share price at €1.00)
+        is_eur_savings = (
+            asset.original_currency == "EUR" and 
+            asset.asset_type == "savings"
+        )
+        
         # Indirect: Value changes (Unrealized)
         # Only if we have end-of-year value. If not, we might assume 0 change or missing data.
         if asset.value_eur_dec31 is not None:
@@ -62,9 +68,23 @@ def calculate_actual_return(
             dep = asset.deposits_eur or 0.0
             withd = asset.withdrawals_eur or 0.0
             
-            # Delta = (End - Start - Deposits + Withdrawals)
-            delta = end_val - start_val - dep + withd
-            indirect_return += delta
+            if is_eur_savings:
+                # FIX: For EUR savings accounts, use strictly realized interest only
+                # Do NOT use the formula (End - Start - Deposits + Withdrawals) because
+                # it captures accrued interest (unrealized) which should not be taxable.
+                # The realized_gains_eur already contains the sum of "RETURN PAID" transactions.
+                # Skip indirect return calculation for EUR savings accounts.
+                formula_result = end_val - start_val - dep + withd
+                logger.debug(
+                    f"EUR Savings Account ({asset.description or 'Unknown'}): "
+                    f"Using Direct Income ({asset.realized_gains_eur or 0.0:,.2f}) "
+                    f"instead of Formula ({formula_result:,.2f})"
+                )
+            else:
+                # For foreign currency accounts (USD, GBP, etc.), use the formula to capture FX gains
+                # Delta = (End - Start - Deposits + Withdrawals)
+                delta = end_val - start_val - dep + withd
+                indirect_return += delta
             
     total_actual_return = direct_return + indirect_return
     

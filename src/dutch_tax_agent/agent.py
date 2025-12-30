@@ -256,14 +256,22 @@ class DutchTaxAgent:
                         deposits = csv_data["total_deposits_eur"]
                         withdrawals = csv_data["total_withdrawals_eur"]
                         
-                        # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
-                        # Only calculate if both jan1 and dec31 are available
-                        actual_return = None
-                        if jan1 is not None and dec31 is not None:
-                            actual_return = (dec31 - jan1) - (deposits - withdrawals)
-                        
                         # Get realized gains if available (investment fund format)
                         realized_gains = csv_data.get("realized_gains_eur", 0.0)
+                        
+                        # Calculate Actual Return
+                        # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+                        # For foreign currency accounts, use formula to capture FX gains
+                        currency = csv_data["currency"]
+                        is_eur_savings = currency == "EUR"  # CSV files default to "savings" asset_type
+                        actual_return = None
+                        if jan1 is not None and dec31 is not None:
+                            if is_eur_savings:
+                                # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                                actual_return = realized_gains if realized_gains > 0 else None
+                            else:
+                                # Foreign currency: use formula to capture FX gains
+                                actual_return = (dec31 - jan1) - (deposits - withdrawals)
                         
                         asset = Box3Asset(
                             source_doc_id=metadata["id"],
@@ -458,9 +466,20 @@ class DutchTaxAgent:
                         merged_losses += asset.realized_losses_eur or 0.0
                     
                     # Calculate actual return if we have both jan1 and dec31
+                    # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+                    # For foreign currency accounts, use formula to capture FX gains
+                    is_eur_savings = (
+                        base_asset.original_currency == "EUR" and 
+                        base_asset.asset_type == "savings"
+                    )
                     actual_return = None
                     if merged_jan1 is not None and merged_dec31 is not None:
-                        actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
+                        if is_eur_savings:
+                            # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                            actual_return = merged_gains if merged_gains > 0 else None
+                        else:
+                            # Foreign currency: use formula to capture FX gains
+                            actual_return = (merged_dec31 - merged_jan1) - (merged_deposits - merged_withdrawals)
                     
                     # Use Jan 1 value as default if still None
                     if merged_jan1 is None:
@@ -487,7 +506,7 @@ class DutchTaxAgent:
                         original_currency=base_asset.original_currency,
                         conversion_rate=base_asset.conversion_rate,
                         reference_date=base_asset.reference_date,
-                        description=base_asset.description,  # Keep original description
+                        description=base_asset.description,
                         account_number=base_asset.account_number,  # Keep account_number
                         extraction_confidence=min(a.extraction_confidence for a in assets),
                         original_text_snippet=base_asset.original_text_snippet,

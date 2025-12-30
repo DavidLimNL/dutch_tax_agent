@@ -482,41 +482,54 @@ class InvestmentFundCSVParser:
                 # We'll track the balance by processing transactions chronologically
                 # The balance represents the value of holdings at each point
                 balance = 0.0
-                total_deposits = 0.0
-                total_withdrawals = 0.0
-                total_fees = 0.0
-                realized_gains = 0.0
+                total_deposits_eur = 0.0  # Only EXTERNAL money coming in
+                total_withdrawals_eur = 0.0  # Only EXTERNAL money going out (including fees)
+                gross_interest_eur = 0.0
                 
                 # Process transactions chronologically to build balance
                 for trans in transactions:
-                    value = trans["value"]
+                    val_eur = trans["value"]  # Already in EUR
                     desc = trans["description"].upper()
                     
-                    if "BUY" in desc:
-                        # Purchase = deposit (increases holdings and balance)
-                        total_deposits += abs(value)  # Value is positive for BUY
-                        balance += value
-                    elif "SELL" in desc:
-                        # Sale = withdrawal (decreases holdings and balance)
-                        total_withdrawals += abs(value)  # Value is negative for SELL, store as positive
-                        balance += value  # Add negative value
+                    # 1. Handle Interest (Income)
+                    if "RETURN PAID" in desc:
+                        gross_interest_eur += val_eur  # Value is positive
+                        balance += val_eur
+                    
+                    # 2. Handle Fees (Treat as Withdrawal because they are not deductible)
                     elif "SERVICE FEE" in desc or "FEE CHARGED" in desc:
-                        # Fee = withdrawal (decreases balance, doesn't change holdings)
-                        total_fees += abs(value)  # Value is negative, store as positive
-                        total_withdrawals += abs(value)
-                        balance += value  # Add negative value
-                    elif "RETURN PAID" in desc or "RETURN" in desc:
-                        # Return/dividend = realized gain (increases balance, doesn't change holdings)
-                        realized_gains += value  # Value is positive
-                        balance += value
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur  # Reduces balance
+                    
+                    # 3. Handle Withdrawals (Transfers OUT)
+                    elif "RETURN WITHDRAWN" in desc or "SELL" in desc:
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur
+                    
+                    # 4. Handle Deposits (Transfers IN)
+                    elif "BUY" in desc:
+                        # Note: Some BUY transactions may be automatic reinvestments of interest.
+                        # If a matching RETURN REINVESTED exists, it will be counted as a withdrawal,
+                        # which mathematically neutralizes this deposit in the net capital flow calculation.
+                        total_deposits_eur += abs(val_eur)  # Value is positive for BUY
+                        balance += val_eur
+                    
+                    # 5. Handle Internal Reinvestments (The Sweep)
+                    elif "RETURN REINVESTED" in desc:
+                        # This is the money leaving 'Cash' to enter 'Fund'.
+                        # If we counted the matching BUY as a deposit, we must count this as a withdrawal
+                        # to neutralize the flow. This ensures net capital flow is correct.
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur
+                    
                     else:
                         # Unknown transaction type - treat value as-is
                         logger.warning(f"Unknown transaction type: {desc}, treating as balance change")
-                        balance += value
-                        if value > 0:
-                            total_deposits += value
+                        balance += val_eur
+                        if val_eur > 0:
+                            total_deposits_eur += val_eur
                         else:
-                            total_withdrawals += abs(value)
+                            total_withdrawals_eur += abs(val_eur)
                 
                 # For investment fund CSV files, we cannot calculate Jan 1 and Dec 31 balances
                 # because we don't have the starting balance and the CSV may not cover the full year
@@ -528,17 +541,17 @@ class InvestmentFundCSVParser:
                 logger.info(
                     f"Successfully parsed investment fund CSV {csv_path.name}: "
                     f"{len(transactions)} transactions, "
-                    f"Deposits: {total_deposits:,.2f} EUR, "
-                    f"Withdrawals: {total_withdrawals:,.2f} EUR, "
-                    f"Realized gains: {realized_gains:,.2f} EUR"
+                    f"Deposits: {total_deposits_eur:,.2f} EUR, "
+                    f"Withdrawals: {total_withdrawals_eur:,.2f} EUR, "
+                    f"Gross interest: {gross_interest_eur:,.2f} EUR"
                 )
                 
                 return {
                     "jan1_balance_eur": jan1_balance,
                     "dec31_balance_eur": dec31_balance,
-                    "total_deposits_eur": total_deposits,
-                    "total_withdrawals_eur": total_withdrawals,
-                    "realized_gains_eur": realized_gains,
+                    "total_deposits_eur": total_deposits_eur,
+                    "total_withdrawals_eur": total_withdrawals_eur,
+                    "realized_gains_eur": gross_interest_eur,  # Return as realized_gains_eur for compatibility
                     "currency": "EUR",
                     "first_transaction_date": first_date,
                     "last_transaction_date": last_date,
@@ -723,43 +736,57 @@ class MultiCurrencyInvestmentFundCSVParser:
                     )
                 
                 # Calculate running balance and categorize transactions
-                total_deposits = 0.0
-                total_withdrawals = 0.0
-                total_fees = 0.0
-                realized_gains = 0.0
+                # Track balance to calculate net change in value
+                balance = 0.0
+                total_deposits_eur = 0.0  # Only EXTERNAL money coming in
+                total_withdrawals_eur = 0.0  # Only EXTERNAL money going out (including fees)
+                gross_interest_eur = 0.0
                 
                 # Process transactions chronologically to categorize them
                 for trans in transactions:
-                    value = trans["value"]
+                    # Always use the EUR value column for the tax calculation
+                    val_eur = trans["value"]  # Already in EUR from "Value, EUR" column
                     desc = trans["description"].upper()
                     
-                    if "BUY" in desc:
-                        # Purchase = deposit (increases holdings and balance)
-                        total_deposits += abs(value)  # Value is positive for BUY
-                    elif "SELL" in desc:
-                        # Sale = withdrawal (decreases holdings and balance)
-                        total_withdrawals += abs(value)  # Value is negative for SELL, store as positive
+                    # 1. Handle Interest (Income)
+                    if "RETURN PAID" in desc:
+                        gross_interest_eur += val_eur  # Value is positive
+                        balance += val_eur
+                    
+                    # 2. Handle Fees (Treat as Withdrawal because they are not deductible)
                     elif "SERVICE FEE" in desc or "FEE CHARGED" in desc:
-                        # Fee = withdrawal (decreases balance, doesn't change holdings)
-                        total_fees += abs(value)  # Value is negative, store as positive
-                        total_withdrawals += abs(value)
-                    elif "RETURN PAID" in desc:
-                        # Return/dividend = realized gain (increases balance, doesn't change holdings)
-                        realized_gains += value  # Value is positive
-                    elif "RETURN WITHDRAWN" in desc:
-                        # Withdrawal of returns = withdrawal
-                        total_withdrawals += abs(value)  # Value is negative, store as positive
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur  # Reduces balance
+                    
+                    # 3. Handle Withdrawals (Transfers OUT)
+                    elif "RETURN WITHDRAWN" in desc or "SELL" in desc:
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur
+                    
+                    # 4. Handle Deposits (Transfers IN) - The Tricky Part
+                    elif "BUY" in desc:
+                        # Note: Some BUY transactions may be automatic reinvestments of interest.
+                        # If a matching RETURN REINVESTED exists, it will be counted as a withdrawal,
+                        # which mathematically neutralizes this deposit in the net capital flow calculation.
+                        total_deposits_eur += abs(val_eur)  # Value is positive for BUY
+                        balance += val_eur
+                    
+                    # 5. Handle Internal Reinvestments (The Sweep)
                     elif "RETURN REINVESTED" in desc:
-                        # Reinvestment = no deposit/withdrawal (just a balance change)
-                        # Do not count as deposit or withdrawal
-                        pass
+                        # This is the money leaving 'Cash' to enter 'Fund'.
+                        # If we counted the matching BUY as a deposit, we must count this as a withdrawal
+                        # to neutralize the flow. This ensures net capital flow is correct.
+                        total_withdrawals_eur += abs(val_eur)  # Value is negative, store as positive
+                        balance += val_eur
+                    
                     else:
-                        # Unknown transaction type - treat value as-is
+                        # Unknown transaction type
                         logger.warning(f"Unknown transaction type: {desc}, treating as balance change")
-                        if value > 0:
-                            total_deposits += value
+                        balance += val_eur
+                        if val_eur > 0:
+                            total_deposits_eur += val_eur
                         else:
-                            total_withdrawals += abs(value)
+                            total_withdrawals_eur += abs(val_eur)
                 
                 # For investment fund CSV files, we cannot calculate Jan 1 and Dec 31 balances
                 # because we don't have the starting balance and the CSV may not cover the full year
@@ -767,22 +794,27 @@ class MultiCurrencyInvestmentFundCSVParser:
                 jan1_balance = None
                 dec31_balance = None
                 
+                # Note: For foreign currency accounts (USD, GBP, etc.), the actual return includes FX gains.
+                # The actual return should be calculated as: (End Balance - Start Balance) - (Deposits - Withdrawals)
+                # This calculation happens later when Jan 1 and Dec 31 balances are available.
+                # For EUR accounts, gross_interest_eur may be sufficient, but the formula above is more accurate.
+                
                 # All values are already in EUR, no conversion needed
                 logger.info(
                     f"Successfully parsed multi-currency investment fund CSV {csv_path.name}: "
                     f"{len(transactions)} transactions, "
                     f"Currency: {currency}, "
-                    f"Deposits: {total_deposits:,.2f} EUR, "
-                    f"Withdrawals: {total_withdrawals:,.2f} EUR, "
-                    f"Realized gains: {realized_gains:,.2f} EUR"
+                    f"Deposits: {total_deposits_eur:,.2f} EUR, "
+                    f"Withdrawals: {total_withdrawals_eur:,.2f} EUR, "
+                    f"Gross interest: {gross_interest_eur:,.2f} EUR"
                 )
                 
                 return {
                     "jan1_balance_eur": jan1_balance,
                     "dec31_balance_eur": dec31_balance,
-                    "total_deposits_eur": total_deposits,
-                    "total_withdrawals_eur": total_withdrawals,
-                    "realized_gains_eur": realized_gains,
+                    "total_deposits_eur": total_deposits_eur,
+                    "total_withdrawals_eur": total_withdrawals_eur,
+                    "realized_gains_eur": gross_interest_eur,  # Return as realized_gains_eur for compatibility
                     "currency": currency,
                     "first_transaction_date": first_date,
                     "last_transaction_date": last_date,

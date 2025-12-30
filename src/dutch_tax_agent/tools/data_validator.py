@@ -254,15 +254,27 @@ class DataValidator:
                 from datetime import datetime
                 reference_date = datetime.fromisoformat(reference_date).date()
 
-            # Calculate Actual Return: (End Value - Start Value) - (Deposits - Withdrawals)
+            # Calculate Actual Return
+            # For EUR savings accounts, use strictly realized interest (realized_gains_eur)
+            # For foreign currency accounts, use formula to capture FX gains
             deposits = data.get("deposits_eur")
             withdrawals = data.get("withdrawals_eur")
+            original_currency = data.get("original_currency", "EUR")
+            is_eur_savings = (
+                original_currency == "EUR" and 
+                asset_type == "savings"
+            )
             actual_return = None
             if value_eur_dec31 is not None:
-                jan1_val = value_eur_jan1 or 0.0
-                deposits_val = deposits or 0.0
-                withdrawals_val = withdrawals or 0.0
-                actual_return = (value_eur_dec31 - jan1_val) - (deposits_val - withdrawals_val)
+                if is_eur_savings:
+                    # EUR savings: use realized gains only (sum of RETURN PAID transactions)
+                    actual_return = realized_gains if realized_gains is not None and realized_gains > 0 else None
+                else:
+                    # Foreign currency: use formula to capture FX gains
+                    jan1_val = value_eur_jan1 or 0.0
+                    deposits_val = deposits or 0.0
+                    withdrawals_val = withdrawals or 0.0
+                    actual_return = (value_eur_dec31 - jan1_val) - (deposits_val - withdrawals_val)
             
             return Box3Asset(
                 source_doc_id=source_doc_id,
